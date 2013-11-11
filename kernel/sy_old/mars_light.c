@@ -252,6 +252,7 @@ struct mars_rotate {
 	struct mars_dent *syncstatus_dent;
 	struct if_brick *if_brick;
 	const char *fetch_path;
+	const char *fetch_peer;
 	const char *parent_path;
 	struct say_channel *log_say;
 	struct copy_brick *fetch_brick;
@@ -1372,7 +1373,7 @@ int check_logfile(const char *peer, struct mars_dent *remote_dent, struct mars_d
 	fetch_brick = rot->fetch_brick;
 	MARS_DBG("fetch_brick = %p (remote '%s' %d) fetch_serial = %d\n", fetch_brick, remote_dent->d_path, remote_dent->d_serial, rot->fetch_serial);
 	if (fetch_brick) {
-		if (remote_dent->d_serial == rot->fetch_serial) {
+		if (remote_dent->d_serial == rot->fetch_serial && rot->fetch_peer && !strcmp(rot->fetch_peer, peer)) {
 			// treat copy brick instance underway
 			status = _update_file(rot, switch_path, rot->fetch_path, remote_dent->d_path, peer, src_size);
 			MARS_DBG("re-update '%s' from peer '%s' status = %d\n", remote_dent->d_path, peer, status);
@@ -1382,8 +1383,12 @@ int check_logfile(const char *peer, struct mars_dent *remote_dent, struct mars_d
 		// start copy brick instance
 		status = _update_file(rot, switch_path, rot->fetch_path, remote_dent->d_path, peer, src_size);
 		MARS_DBG("update '%s' from peer '%s' status = %d\n", remote_dent->d_path, peer, status);
-		rot->fetch_serial = remote_dent->d_serial;
-		rot->fetch_next_is_available = 0;
+		if (likely(status >= 0)) {
+			rot->fetch_serial = remote_dent->d_serial;
+			rot->fetch_next_is_available = 0;
+			brick_string_free(rot->fetch_peer);
+			rot->fetch_peer = brick_strdup(peer);
+		}
 	} else {
 		MARS_DBG("allow_update = %d src_size = %lld dst_size = %lld local_dent = %p\n", rot->allow_update, src_size, dst_size, local_dent);
 	}
@@ -1463,12 +1468,12 @@ int run_bone(struct mars_peerinfo *peer, struct mars_dent *remote_dent)
 		const char *parent_path = backskip_replace(remote_dent->d_path, '/', false, "");
 		if (likely(parent_path)) {
 			struct mars_dent *parent = mars_find_dent(peer->global, parent_path);
-			struct mars_dent *local_dent = mars_find_dent(peer->global, remote_dent->d_path);
 			if (unlikely(!parent)) {
 			// don't copy old / outdated logfiles
 			} else if (parent->d_private &&
 				   ((struct mars_rotate *)parent->d_private)->relevant_serial > remote_dent->d_serial) {
 			} else {
+				struct mars_dent *local_dent = mars_find_dent(peer->global, remote_dent->d_path);
 				status = check_logfile(peer->peer, remote_dent, local_dent, parent, local_stat.size);
 			}
 			brick_string_free(parent_path);
@@ -2093,8 +2098,10 @@ void rot_destruct(void *_rot)
 		del_channel(rot->log_say);
 		rot->log_say = NULL;
 		brick_string_free(rot->fetch_path);
+		brick_string_free(rot->fetch_peer);
 		brick_string_free(rot->parent_path);
 		rot->fetch_path = NULL;
+		rot->fetch_peer = NULL;
 		rot->parent_path = NULL;
 	}
 }
