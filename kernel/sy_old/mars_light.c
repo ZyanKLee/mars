@@ -253,6 +253,7 @@ struct mars_rotate {
 	struct if_brick *if_brick;
 	const char *fetch_path;
 	const char *fetch_peer;
+	const char *preferred_peer;
 	const char *parent_path;
 	struct say_channel *log_say;
 	struct copy_brick *fetch_brick;
@@ -1228,7 +1229,7 @@ done:
 // remote workers
 
 static
-DEFINE_SPINLOCK(peer_lock);
+rwlock_t peer_lock = __RW_LOCK_UNLOCKED(&peer_lock);
 
 static
 struct list_head peer_anchor = LIST_HEAD_INIT(peer_anchor);
@@ -1242,10 +1243,30 @@ struct mars_peerinfo {
 	spinlock_t lock;
 	struct list_head peer_head;
 	struct list_head remote_dent_list;
+	unsigned long last_remote_jiffies;
 	int maxdepth;
 	bool to_remote_trigger;
 	bool from_remote_trigger;
 };
+
+static
+struct mars_peerinfo *find_peer(const char *peer_name)
+{
+	struct list_head *tmp;
+	struct mars_peerinfo *res = NULL;
+
+	read_lock(&peer_lock);
+	for (tmp = peer_anchor.next; tmp != &peer_anchor; tmp = tmp->next) {
+		struct mars_peerinfo *peer = container_of(tmp, struct mars_peerinfo, peer_head);
+		if (!strcmp(peer->peer, peer_name)) {
+			res = peer;
+			break;
+		}
+	}
+	read_unlock(&peer_lock);
+
+	return res;
+}
 
 static
 bool _is_usable_dir(const char *name)
@@ -1379,6 +1400,7 @@ int check_logfile(const char *peer, struct mars_dent *remote_dent, struct mars_d
 			MARS_DBG("re-update '%s' from peer '%s' status = %d\n", remote_dent->d_path, peer, status);
 		}
 	} else if (!rot->fetch_serial && rot->allow_update &&
+		   (!rot->preferred_peer || !strcmp(rot->preferred_peer, peer)) &&
 		   (dst_size < src_size || !local_dent)) {		
 		// start copy brick instance
 		status = _update_file(rot, switch_path, rot->fetch_path, remote_dent->d_path, peer, src_size);
@@ -1646,6 +1668,8 @@ int peer_thread(void *data)
 
 			spin_unlock(&peer->lock);
 
+			peer->last_remote_jiffies = jiffies;
+
 			mars_trigger();
 
 			mars_free_dent_all(NULL, &old_list);
@@ -1696,14 +1720,13 @@ void from_remote_trigger(void)
 
 	_make_alive();
 
-	// TODO: replace peer_lock with rw_lock
-	spin_lock(&peer_lock);
+	read_lock(&peer_lock);
 	for (tmp = peer_anchor.next; tmp != &peer_anchor; tmp = tmp->next) {
 		struct mars_peerinfo *peer = container_of(tmp, struct mars_peerinfo, peer_head);
 		peer->from_remote_trigger = true;
 		count++;
 	}
-	spin_unlock(&peer_lock);
+	read_unlock(&peer_lock);
 
 	MARS_DBG("got trigger for %d peers\n", count);
 	wake_up_interruptible_all(&remote_event);
@@ -1716,14 +1739,13 @@ void __mars_remote_trigger(void)
 	struct list_head *tmp;
 	int count = 0;
 
-	// TODO: replace peer_lock with rw_lock
-	spin_lock(&peer_lock);
+	read_lock(&peer_lock);
 	for (tmp = peer_anchor.next; tmp != &peer_anchor; tmp = tmp->next) {
 		struct mars_peerinfo *peer = container_of(tmp, struct mars_peerinfo, peer_head);
 		peer->to_remote_trigger = true;
 		count++;
 	}
-	spin_unlock(&peer_lock);
+	read_unlock(&peer_lock);
 
 	MARS_DBG("triggered %d peers\n", count);
 	wake_up_interruptible_all(&remote_event);
@@ -1769,9 +1791,9 @@ static int _kill_peer(void *buf, struct mars_dent *dent)
 		return 0;
 	}
 
-	spin_lock(&peer_lock);
+	write_lock(&peer_lock);
 	list_del_init(&peer->peer_head);
-	spin_unlock(&peer_lock);
+	write_unlock(&peer_lock);
 
 	MARS_INF("stopping peer thread...\n");
 	if (peer->peer_thread) {
@@ -1820,9 +1842,9 @@ static int _make_peer(struct mars_global *global, struct mars_dent *dent, char *
 		INIT_LIST_HEAD(&peer->peer_head);
 		INIT_LIST_HEAD(&peer->remote_dent_list);
 
-		spin_lock(&peer_lock);
+		write_lock(&peer_lock);
 		list_add_tail(&peer->peer_head, &peer_anchor);
-		spin_unlock(&peer_lock);
+		write_unlock(&peer_lock);
 	}
 
 	peer = dent->d_private;
@@ -2099,9 +2121,11 @@ void rot_destruct(void *_rot)
 		rot->log_say = NULL;
 		brick_string_free(rot->fetch_path);
 		brick_string_free(rot->fetch_peer);
+		brick_string_free(rot->preferred_peer);
 		brick_string_free(rot->parent_path);
 		rot->fetch_path = NULL;
 		rot->fetch_peer = NULL;
+		rot->preferred_peer = NULL;
 		rot->parent_path = NULL;
 	}
 }
@@ -2163,6 +2187,8 @@ int make_log_init(void *buf, struct mars_dent *dent)
 	rot->next_log = NULL;
 	rot->max_sequence = 0;
 	rot->has_error = false;
+	brick_string_free(rot->preferred_peer);
+	rot->preferred_peer = NULL;
 
 	if (dent->new_link)
 		sscanf(dent->new_link, "%lld", &rot->dev_size);
@@ -3498,6 +3524,55 @@ done:
 	return status;
 }
 
+static
+bool remember_peer(struct mars_rotate *rot, struct mars_peerinfo *peer)
+{
+	if (!peer || !rot || rot->preferred_peer)
+		return false;
+
+	if ((long long)peer->last_remote_jiffies + mars_scan_interval * HZ * 2 < (long long)jiffies)
+		return false;
+
+	rot->preferred_peer = brick_strdup(peer->peer);
+	return true;
+}
+
+static
+int make_connect(void *buf, struct mars_dent *dent)
+{
+	struct mars_rotate *rot;
+	struct mars_peerinfo *peer;
+	char *names;
+	char *this_name;
+	char *tmp;
+
+	if (unlikely(!dent->d_parent || !dent->new_link)) {
+		goto done;
+	}
+	rot = dent->d_parent->d_private;
+	if (unlikely(!rot)) {
+		goto done;
+	}
+
+	names = brick_strdup(dent->new_link);
+	for (tmp = this_name = names; *tmp; tmp++) {
+		if (*tmp == MARS_DELIM) {
+			*tmp = '\0';
+			peer = find_peer(this_name);
+			if (remember_peer(rot, peer))
+				goto found;
+			this_name = tmp + 1;
+		}
+	}
+	peer = find_peer(this_name);
+	remember_peer(rot, peer);
+
+found:
+	brick_string_free(names);
+done:
+	return 0;
+}
+
 static int prepare_delete(void *buf, struct mars_dent *dent)
 {
 	struct kstat stat;
@@ -3637,11 +3712,11 @@ enum {
 	CL_TODO_ITEMS,
 	CL_ACTUAL,
 	CL_ACTUAL_ITEMS,
-	CL_CONNECT,
 	CL_DATA,
 	CL_SIZE,
 	CL_ACTSIZE,
 	CL_PRIMARY,
+	CL_CONNECT,
 	CL_TRANSFER,
 	CL_SYNC,
 	CL_VERIF,
@@ -3866,15 +3941,6 @@ static const struct light_class light_classes[] = {
 	},
 
 
-	/* Symlink indicating the current peer
-	 */
-	[CL_CONNECT] = {
-		.cl_name = "connect-",
-		.cl_len = 8,
-		.cl_type = 'l',
-		.cl_hostcontext = false, // not used here
-		.cl_father = CL_RESOURCE,
-	},
 	/* File or symlink to the real device / real (sparse) file
 	 * when hostcontext is missing, the corresponding peer will
 	 * not participate in that resource.
@@ -3918,6 +3984,16 @@ static const struct light_class light_classes[] = {
 		.cl_father = CL_RESOURCE,
 		.cl_forward = make_primary,
 		.cl_backward = NULL,
+	},
+	/* Symlink for connection preferences
+	 */
+	[CL_CONNECT] = {
+		.cl_name = "connect-",
+		.cl_len = 8,
+		.cl_type = 'l',
+		.cl_hostcontext = true,
+		.cl_father = CL_RESOURCE,
+		.cl_forward = make_connect,
 	},
 	/* informational symlink indicating the current
 	 * status / start / pos / end of logfile transfers.
