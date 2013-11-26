@@ -314,6 +314,7 @@ ctl_table mars_table[] = {
 	// changing makes no sense because the server will immediately start upon modprobe
 	INT_ENTRY("mars_port",            mars_net_default_port,  0400),
 	INT_ENTRY("network_io_timeout",   global_net_io_timeout,  0600),
+	INT_ENTRY("network_parallel_connections", max_client_channels, 0600),
 	{
 		_CTL_NAME
 		.procname	= "traffic_tuning",
