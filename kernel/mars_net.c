@@ -40,7 +40,7 @@ struct mars_tcp_params default_tcp_params = {
 	.ip_tos = IPTOS_LOWDELAY,
 	.tcp_window_size = 8 * 1024 * 1024, // for long distance replications
 	.tcp_nodelay = 0,
-	.tcp_timeout = 20,
+	.tcp_timeout = 2,
 	.tcp_keepcnt = 3,
 	.tcp_keepintvl = 10, // keepalive ping time
 	.tcp_keepidle = 10,
@@ -510,11 +510,7 @@ int mars_recv_raw(struct mars_socket *msock, void *buf, int minlen, int maxlen)
 		struct msghdr msg = {
 			.msg_iovlen = 1,
 			.msg_iov = (struct iovec*)&iov,
-#if 0 // There seems to be a race in the kernel: sometimes kernel_recvmsg() blocks forever on a shutdown socket even when sk->sk_rcvtimeo is set. Workaround by using noblocking IO (although it is conceptually broken and may lead to unnecessary throughput degradation)
-			.msg_flags = 0 | MSG_WAITALL | MSG_NOSIGNAL,
-#else
-			.msg_flags = 0 | MSG_DONTWAIT | MSG_NOSIGNAL,
-#endif
+			.msg_flags = MSG_NOSIGNAL,
 		};
 		struct socket *sock = msock->s_socket;
 
