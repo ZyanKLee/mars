@@ -628,7 +628,6 @@ extern void brick_thread_stop_nowait(struct task_struct *k);
 
 #define brick_thread_should_stop()		\
 	({					\
-		brick_yield();			\
 		kthread_should_stop();		\
 	})
 
