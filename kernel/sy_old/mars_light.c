@@ -2391,6 +2391,19 @@ done:
 	return status;
 }
 
+static
+bool _next_is_acceptable(struct mars_rotate *rot, struct mars_dent *old_dent, struct mars_dent *new_dent)
+{
+	if (new_dent->d_serial != old_dent->d_serial + 1)
+		return false;
+	/* Primaries are never allowed to consider logfiles not belonging to them.
+	 * Secondaries need this for replay, unfortunately.
+	 */
+	if ((rot->is_primary | rot->old_is_primary) && strcmp(new_dent->d_rest, my_id()))
+		return false;
+	return true;
+}
+
 /* Note: this is strictly called in d_serial order.
  * This is important!
  */
@@ -2438,9 +2451,11 @@ int make_log_step(void *buf, struct mars_dent *dent)
 	status = 0;
 	if (rot->relevant_log) {
 		if (!rot->next_relevant_log) {
-			rot->next_relevant_log = dent;
+			if (_next_is_acceptable(rot, rot->relevant_log, dent))
+				rot->next_relevant_log = dent;
 		} else if (!rot->next_next_relevant_log) {
-			rot->next_next_relevant_log = dent;
+			if (_next_is_acceptable(rot, rot->next_relevant_log, dent))
+				rot->next_next_relevant_log = dent;
 		}
 		MARS_DBG("next_relevant_log = %p next_next_relevant_log = %p\n", rot->next_relevant_log, rot->next_next_relevant_log);
 		goto ok;
