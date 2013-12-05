@@ -56,7 +56,7 @@ void generic_brick_exit(struct generic_brick *brick)
 	brick->ops = NULL;
 	brick->nr_inputs = 0;
 	brick->nr_outputs = 0;
-	put_nr(brick->brick_index);
+	put_brick_nr(brick->brick_index);
 }
 EXPORT_SYMBOL_GPL(generic_brick_exit);
 
@@ -263,13 +263,13 @@ int get_brick_nr(void)
 }
 EXPORT_SYMBOL_GPL(get_brick_nr);
 
-void put_nr(int nr)
+void put_brick_nr(int nr)
 {
 	if (likely(nr_table && nr > 0 && nr < nr_max)) {
 		nr_table[nr] = 0;
 	}
 }
-EXPORT_SYMBOL_GPL(put_nr);
+EXPORT_SYMBOL_GPL(put_brick_nr);
 
 //////////////////////////////////////////////////////////////
 
