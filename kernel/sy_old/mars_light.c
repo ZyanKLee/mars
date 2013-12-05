@@ -2394,13 +2394,19 @@ done:
 static
 bool _next_is_acceptable(struct mars_rotate *rot, struct mars_dent *old_dent, struct mars_dent *new_dent)
 {
-	if (new_dent->d_serial != old_dent->d_serial + 1)
-		return false;
 	/* Primaries are never allowed to consider logfiles not belonging to them.
 	 * Secondaries need this for replay, unfortunately.
 	 */
-	if ((rot->is_primary | rot->old_is_primary) && strcmp(new_dent->d_rest, my_id()))
-		return false;
+	if ((rot->is_primary | rot->old_is_primary)) {
+		if (strcmp(new_dent->d_rest, my_id()))
+			return false;
+	} else {
+		/* Only secondaries should check for contiguity,
+		 * primaries sometimes need holes for emergency mode.
+		 */
+		if (new_dent->d_serial != old_dent->d_serial + 1)
+			return false;
+	}
 	return true;
 }
 
