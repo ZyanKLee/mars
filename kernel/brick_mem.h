@@ -4,7 +4,7 @@
 
 #include <linux/mm_types.h>
 
-#define BRICK_DEBUG_MEM 4096
+#define BRICK_DEBUG_MEM 		4096
 
 #ifndef CONFIG_MARS_DEBUG_MEM
 #undef BRICK_DEBUG_MEM
@@ -13,7 +13,7 @@
 #define BRICK_DEBUG_ORDER0
 #endif
 
-#define GFP_BRICK GFP_NOIO
+#define GFP_BRICK			GFP_NOIO
 
 extern long long brick_global_memavail;
 extern long long brick_global_memlimit;
@@ -43,8 +43,8 @@ extern atomic64_t brick_global_block_used;
  *
  * void *ptr = myfunction();
  * if (unlikely(!ptr)) {
- *         printk("ERROR: this should not happen\n");
- *         goto fail;
+ *	   printk("ERROR: this should not happen\n");
+ *	   goto fail;
  * }
  *
  * ... the dead code elimination of gcc will not remove the if clause
@@ -85,7 +85,7 @@ void *brick_mark_nonnull(void *_ptr)
 		brick_mark_nonnull(_res_);				\
 	})
 
-#define brick_zmem_alloc(_len_)						\
+#define brick_zmem_alloc(_len_) 					\
 	({								\
 		void *_res_ = _brick_mem_alloc(_len_, __LINE__);	\
 		_res_ = brick_mark_nonnull(_res_);			\
@@ -109,7 +109,7 @@ extern void _brick_mem_free(void *data, int line);
 
 // string memory allocation
 
-#define BRICK_STRING_LEN 1024 /* default value when len == 0 */
+#define BRICK_STRING_LEN		1024 /* default value when len == 0 */
 
 #define brick_string_alloc(_len_)					\
 	({								\
@@ -119,7 +119,7 @@ extern void _brick_mem_free(void *data, int line);
 
 #define brick_strndup(_orig_,_len_)					\
 	({								\
-		char *_res_ = _brick_string_alloc((_len_) + 1, __LINE__); \
+		char *_res_ = _brick_string_alloc((_len_) + 1, __LINE__);\
 		_res_ = brick_mark_nonnull(_res_);			\
 		strncpy(_res_, (_orig_), (_len_) + 1);			\
 		/* always null-terminate for safety */			\
@@ -130,7 +130,7 @@ extern void _brick_mem_free(void *data, int line);
 #define brick_strdup(_orig_)						\
 	({								\
 		int _len_ = strlen(_orig_);				\
-		char *_res_ = _brick_string_alloc((_len_) + 1, __LINE__); \
+		char *_res_ = _brick_string_alloc((_len_) + 1, __LINE__);\
 		_res_ = brick_mark_nonnull(_res_);			\
 		strncpy(_res_, (_orig_), (_len_) + 1);			\
 		(char*)brick_mark_nonnull(_res_);			\
@@ -153,14 +153,14 @@ extern void _brick_string_free(const char *data, int line);
 
 #define brick_block_alloc(_pos_,_len_)					\
 	({								\
-		void *_res_ = _brick_block_alloc((_pos_), (_len_), __LINE__); \
+		void *_res_ = _brick_block_alloc((_pos_), (_len_), __LINE__);\
 		brick_mark_nonnull(_res_);				\
 	})
 
-#define brick_block_free(_data_,_len_)\
+#define brick_block_free(_data_,_len_)					\
 	do {								\
 		if (_data_) {						\
-			_brick_block_free((_data_), (_len_), __LINE__);	\
+			_brick_block_free((_data_), (_len_), __LINE__); \
 		}							\
 	} while(0)
 
@@ -174,7 +174,7 @@ extern void _brick_block_free(void *data, int len, int cline);
 
 // reservations / preallocation
 
-#define BRICK_MAX_ORDER 11
+#define BRICK_MAX_ORDER 		11
 
 #ifdef CONFIG_MARS_MEM_PREALLOC
 extern int brick_allow_freelist;

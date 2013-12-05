@@ -9,16 +9,16 @@
 
 #define REQUEST_MERGING
 //#define ALWAYS_UNPLUG false // FIXME: does not work! single requests left over!
-#define ALWAYS_UNPLUG true
-#define PREFETCH_LEN PAGE_SIZE
+#define ALWAYS_UNPLUG			true
+#define PREFETCH_LEN			PAGE_SIZE
 //#define FRONT_MERGE // FIXME: this does not work.
 
 // low-level device parameters
-#define USE_MAX_SECTORS         (MARS_MAX_SEGMENT_SIZE >> 9)
-#define USE_MAX_PHYS_SEGMENTS   (MARS_MAX_SEGMENT_SIZE >> 9)
-#define USE_MAX_SEGMENT_SIZE    MARS_MAX_SEGMENT_SIZE
-#define USE_LOGICAL_BLOCK_SIZE  512
-#define USE_SEGMENT_BOUNDARY    (PAGE_SIZE-1)
+#define USE_MAX_SECTORS 		(MARS_MAX_SEGMENT_SIZE >> 9)
+#define USE_MAX_PHYS_SEGMENTS		(MARS_MAX_SEGMENT_SIZE >> 9)
+#define USE_MAX_SEGMENT_SIZE		MARS_MAX_SEGMENT_SIZE
+#define USE_LOGICAL_BLOCK_SIZE		512
+#define USE_SEGMENT_BOUNDARY		(PAGE_SIZE-1)
 
 #define USE_CONGESTED_FN
 #define USE_MERGE_BVEC
@@ -36,7 +36,7 @@
 #include "lib_limiter.h"
 
 #ifndef XIO_MAJOR // remove this later: fallback to old prepatch
-#define XIO_MAJOR MARS_MAJOR
+#define XIO_MAJOR			MARS_MAJOR
 #endif
 
 ///////////////////////// global tuning ////////////////////////
@@ -53,8 +53,8 @@ EXPORT_SYMBOL_GPL(if_throttle);
 
 #include "mars_if.h"
 
-#define IF_HASH_MAX   (PAGE_SIZE / sizeof(struct if_hash_anchor))
-#define IF_HASH_CHUNK (PAGE_SIZE * 32)
+#define IF_HASH_MAX			(PAGE_SIZE / sizeof(struct if_hash_anchor))
+#define IF_HASH_CHUNK			(PAGE_SIZE * 32)
 
 struct if_hash_anchor {
 	spinlock_t hash_lock;
@@ -185,7 +185,7 @@ void _if_unplug(struct if_input *input)
 		list_replace_init(&input->plug_anchor, &tmp_list);
 		atomic_set(&input->plugged_count, 0);
 	}
-  	spin_unlock(&input->req_lock);
+	spin_unlock(&input->req_lock);
 	up(&input->kick_sem);
 
 	while (!list_empty(&tmp_list)) {
@@ -201,7 +201,7 @@ void _if_unplug(struct if_input *input)
 		list_del_init(&mref_a->hash_head);
 		spin_unlock(&input->hash_table[hash_index].hash_lock);
 
-                mref = mref_a->object;
+		mref = mref_a->object;
 
 		if (unlikely(mref_a->current_len > mref_a->max_len)) {
 			MARS_ERR("request len %d > %d\n", mref_a->current_len, mref_a->max_len);
@@ -242,7 +242,7 @@ if_make_request(struct request_queue *q, struct bio *bio)
 
 	/* Original flags of the source bio
 	 */
-	const int  rw      = bio_data_dir(bio);
+	const int  rw	   = bio_data_dir(bio);
 	const int  sectors = bio_sectors(bio);
 // adapt to different kernel versions (TBD: improve)
 #if defined(BIO_RW_RQ_MASK) || defined(BIO_FLUSH)
@@ -253,7 +253,7 @@ if_make_request(struct request_queue *q, struct bio *bio)
 	const bool meta    = bio_rw_flagged(bio, BIO_RW_META);
 	const bool discard = bio_rw_flagged(bio, BIO_RW_DISCARD);
 	const bool noidle  = bio_rw_flagged(bio, BIO_RW_NOIDLE);
-	const bool fua     = false;
+	const bool fua	   = false;
 #elif defined(REQ_FLUSH) && defined(REQ_SYNC)
 #define _flagged(x) (bio->bi_rw & (x))
 	const bool ahead   = _flagged(REQ_RAHEAD) && rw == READ;
@@ -263,7 +263,7 @@ if_make_request(struct request_queue *q, struct bio *bio)
 	const bool meta    = _flagged(REQ_META);
 	const bool discard = _flagged(REQ_DISCARD);
 	const bool noidle  = _flagged(REQ_THROTTLED);
-	const bool fua     = _flagged(REQ_FUA);
+	const bool fua	   = _flagged(REQ_FUA);
 #else
 #error Cannot decode the bio flags
 #endif
@@ -297,7 +297,7 @@ if_make_request(struct request_queue *q, struct bio *bio)
 	bool assigned = false;
 	loff_t pos = ((loff_t)bio->bi_sector) << 9; // TODO: make dynamic
 	int total_len = bio->bi_size;
-        int error = -ENOSYS;
+	int error = -ENOSYS;
 
 	bind_to_channel(brick->say_channel, current);
 
@@ -476,7 +476,7 @@ if_make_request(struct request_queue *q, struct bio *bio)
 					up(&input->kick_sem);
 					goto err;
 				}
-				
+
 				this_len = mref->ref_len; // now may be shorter than originally requested.
 				mref_a->max_len = this_len;
 				if (this_len > bv_len) {
@@ -671,7 +671,7 @@ static int if_switch(struct if_brick *brick)
 		}
 		q->queuedata = input;
 		input->q = q;
-		
+
 		disk = alloc_disk(1);
 		if (!disk) {
 			MARS_ERR("cannot allocate gendisk\n");
@@ -691,7 +691,7 @@ static int if_switch(struct if_brick *brick)
 		capacity = if_get_capacity(brick);
 		MARS_DBG("created device name %s, capacity=%lld\n", disk->disk_name, capacity);
 		if_set_capacity(input, capacity);
-		
+
 		blk_queue_make_request(q, if_make_request);
 #ifdef USE_MAX_SECTORS
 #ifdef MAX_SEGMENT_SIZE
@@ -739,7 +739,7 @@ static int if_switch(struct if_brick *brick)
 #endif
 		MARS_DBG("queue_lock\n");
 		q->queue_lock = &input->req_lock; // needed!
-		
+
 		input->bdev = bdget(MKDEV(disk->major, minor));
 		/* we have no partitions. we contain only ourselves. */
 		input->bdev->bd_contains = input->bdev;
@@ -874,10 +874,10 @@ char *if_statistics(struct if_brick *brick, int verbose)
 {
 	struct if_input *input = brick->inputs[0];
 	char *res = brick_string_alloc(512);
-	int tmp0 = atomic_read(&input->total_reada_count); 
-	int tmp1 = atomic_read(&input->total_read_count); 
+	int tmp0 = atomic_read(&input->total_reada_count);
+	int tmp1 = atomic_read(&input->total_read_count);
 	int tmp2 = atomic_read(&input->total_mref_read_count);
-	int tmp3 = atomic_read(&input->total_write_count); 
+	int tmp3 = atomic_read(&input->total_write_count);
 	int tmp4 = atomic_read(&input->total_mref_write_count);
 
 	snprintf(res, 512,

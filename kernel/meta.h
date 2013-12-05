@@ -44,7 +44,7 @@ enum field_type {
 };
 
 struct meta {
-	//char  field_name[MAX_FIELD_LEN];
+	//char	field_name[MAX_FIELD_LEN];
 	char *field_name;
 	short field_type;
 	short field_data_size;
@@ -55,31 +55,31 @@ struct meta {
 
 #define _META_INI(NAME,STRUCT,TYPE,TSIZE)				\
 	.field_name = #NAME,						\
-	.field_type = TYPE,					        \
-	.field_data_size = sizeof(((STRUCT*)NULL)->NAME),	        \
-	.field_transfer_size = (TSIZE),					\
-	.field_offset = offsetof(STRUCT, NAME)			        \
+	.field_type = TYPE,						\
+	.field_data_size = sizeof(((STRUCT*)NULL)->NAME),		\
+	.field_transfer_size = (TSIZE), 				\
+	.field_offset = offsetof(STRUCT, NAME)				\
 
-#define META_INI_TRANSFER(NAME,STRUCT,TYPE,TSIZE)	\
+#define META_INI_TRANSFER(NAME,STRUCT,TYPE,TSIZE)			\
 	{ _META_INI(NAME,STRUCT,TYPE,TSIZE) }
 
-#define META_INI(NAME,STRUCT,TYPE)		\
+#define META_INI(NAME,STRUCT,TYPE)					\
 	{ _META_INI(NAME,STRUCT,TYPE,0) }
 
 #define _META_INI_REF(NAME,STRUCT,REF)					\
 	.field_name = #NAME,						\
-	.field_type = FIELD_REF,				        \
-	.field_data_size = sizeof(*(((STRUCT*)NULL)->NAME)),	        \
-	.field_offset = offsetof(STRUCT, NAME),			        \
+	.field_type = FIELD_REF,					\
+	.field_data_size = sizeof(*(((STRUCT*)NULL)->NAME)),		\
+	.field_offset = offsetof(STRUCT, NAME), 			\
 	.field_ref = REF
 
 #define META_INI_REF(NAME,STRUCT,REF) { _META_INI_REF(NAME,STRUCT,REF) }
 
 #define _META_INI_SUB(NAME,STRUCT,SUB)					\
 	.field_name = #NAME,						\
-	.field_type = FIELD_SUB,				        \
-	.field_data_size = sizeof(((STRUCT*)NULL)->NAME),	        \
-	.field_offset = offsetof(STRUCT, NAME),			        \
+	.field_type = FIELD_SUB,					\
+	.field_data_size = sizeof(((STRUCT*)NULL)->NAME),		\
+	.field_offset = offsetof(STRUCT, NAME), 			\
 	.field_ref = SUB
 
 #define META_INI_SUB(NAME,STRUCT,SUB) { _META_INI_SUB(NAME,STRUCT,SUB) }

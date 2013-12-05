@@ -160,7 +160,7 @@ EXPORT_SYMBOL_GPL(generic_disconnect);
 int _brick_msleep(int msecs, bool shorten)
 {
 	unsigned long timeout;
-	flush_signals(current);			\
+	flush_signals(current); 					\
 	if (msecs <= 0) {
 		schedule();
 		return 0;
@@ -187,13 +187,13 @@ EXPORT_SYMBOL_GPL(_brick_msleep);
  */
 #if 1 // remove this for migration to kernel/kthread.c
 struct kthread {
-        int should_stop;
+	int should_stop;
 #ifdef KTHREAD_WORKER_INIT
 	void *data;
 #endif
-        struct completion exited;
+	struct completion exited;
 };
-#define to_kthread(tsk) \
+#define to_kthread(tsk) 						\
 	container_of((tsk)->vfork_done, struct kthread, exited)
 #endif
 /**
@@ -217,8 +217,8 @@ void kthread_stop_nowait(struct task_struct *k)
        kthread = to_kthread(k);
        barrier(); /* it might have exited */
        if (k->vfork_done != NULL) {
-               kthread->should_stop = 1;
-               wake_up_process(k);
+	       kthread->should_stop = 1;
+	       wake_up_process(k);
        }
 }
 EXPORT_SYMBOL_GPL(kthread_stop_nowait);
@@ -318,8 +318,8 @@ int generic_unregister_brick_type(const struct generic_brick_type *old_type)
 EXPORT_SYMBOL_GPL(generic_unregister_brick_type);
 
 int generic_brick_init_full(
-	void *data, 
-	int size, 
+	void *data,
+	int size,
 	const struct generic_brick_type *brick_type,
 	const struct generic_input_type **input_types,
 	const struct generic_output_type **output_types)
@@ -465,7 +465,7 @@ int generic_brick_exit_full(struct generic_brick *brick)
 			return -EPERM;
 		}
 	}
-        // ok, test succeeded. start destruction...
+	// ok, test succeeded. start destruction...
 	for (i = 0; i < brick->type->max_outputs; i++) {
 		struct generic_output *output = brick->outputs[i];
 		if (!output)
@@ -617,13 +617,13 @@ struct generic_aspect *_new_aspect(struct generic_brick *brick, struct generic_o
 	int object_type_nr;
 	int size;
 	int rest;
-	
+
 	object_type = obj->object_type;
 	CHECK_PTR_NULL(object_type, done);
 	object_type_nr = object_type->object_type_nr;
 	aspect_type = brick_type->aspect_types[object_type_nr];
 	CHECK_PTR_NULL(aspect_type, done);
-	
+
 	size = aspect_type->aspect_size;
 	rest = obj->max_offset - obj->free_offset;
 	if (likely(size <= rest)) {
@@ -647,7 +647,7 @@ struct generic_aspect *_new_aspect(struct generic_brick *brick, struct generic_o
 			/* This is racy, but races won't do any harm because
 			 * it is just a hint, not essential.
 			 */
-			if ((max < PAGE_SIZE || object_layout->size_hint > PAGE_SIZE) && 
+			if ((max < PAGE_SIZE || object_layout->size_hint > PAGE_SIZE) &&
 			    object_layout->size_hint < max)
 				object_layout->size_hint = max;
 		}

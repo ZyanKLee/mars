@@ -2,9 +2,9 @@
 #ifndef MARS_TRANS_LOGGER_H
 #define MARS_TRANS_LOGGER_H
 
-#define REGION_SIZE_BITS      (PAGE_SHIFT + 4)
-#define REGION_SIZE           (1 << REGION_SIZE_BITS)
-#define LOGGER_QUEUES         4
+#define REGION_SIZE_BITS		(PAGE_SHIFT + 4)
+#define REGION_SIZE			(1 << REGION_SIZE_BITS)
+#define LOGGER_QUEUES			4
 
 #include <linux/time.h>
 
@@ -64,11 +64,11 @@ struct logger_head {
 
 ////////////////////////////////////////////////////////////////////
 
-#define TL_INPUT_READ         0
-#define TL_INPUT_WRITEBACK    0
-#define TL_INPUT_LOG1         1
-#define TL_INPUT_LOG2         2
-#define TL_INPUT_NR           3
+#define TL_INPUT_READ			0
+#define TL_INPUT_WRITEBACK		0
+#define TL_INPUT_LOG1			1
+#define TL_INPUT_LOG2			2
+#define TL_INPUT_NR			3
 
 struct writeback_info {
 	struct trans_logger_brick *w_brick;
@@ -134,7 +134,7 @@ struct trans_logger_brick {
 	bool log_reads;   // additionally log pre-images
 	bool cease_logging; // direct IO without logging (only in case of EMERGENCY)
 	loff_t replay_start_pos; // where to start replay
-	loff_t replay_end_pos;   // end of replay
+	loff_t replay_end_pos;	 // end of replay
 	int new_input_nr;   // whereto we should switchover ASAP
 	int replay_tolerance; // how many bytes to ignore at truncated logfiles
 	// readonly from outside
@@ -192,14 +192,14 @@ struct trans_logger_output {
 	MARS_OUTPUT(trans_logger);
 };
 
-#define MAX_HOST_LEN 32
+#define MAX_HOST_LEN			32
 
 struct trans_logger_info {
 	// to be maintained / initialized from outside
 	void (*inf_callback)(struct trans_logger_info *inf);
 	void  *inf_private;
 	char   inf_host[MAX_HOST_LEN];
-	int    inf_sequence;     // logfile sequence number
+	int    inf_sequence;	 // logfile sequence number
 
 	// maintained by trans_logger
 	loff_t inf_min_pos;  // current replay position (both in replay mode and in logging mode)

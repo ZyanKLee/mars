@@ -5,10 +5,10 @@
 #include <linux/aio.h>
 #include <linux/syscalls.h>
 
-#define AIO_SUBMIT_MAX_LATENCY    1000 //   1 ms
-#define AIO_IO_R_MAX_LATENCY     50000 //  50 ms
-#define AIO_IO_W_MAX_LATENCY    150000 // 150 ms
-#define AIO_SYNC_MAX_LATENCY    150000 // 150 ms
+#define AIO_SUBMIT_MAX_LATENCY		1000 //   1 ms
+#define AIO_IO_R_MAX_LATENCY		50000 //  50 ms
+#define AIO_IO_W_MAX_LATENCY		150000 // 150 ms
+#define AIO_SYNC_MAX_LATENCY		150000 // 150 ms
 
 extern struct threshold aio_submit_threshold;
 extern struct threshold aio_io_threshold[2];
@@ -60,7 +60,7 @@ struct aio_threadinfo {
 
 struct aio_output {
 	MARS_OUTPUT(aio);
-        // private
+	// private
 	struct list_head dirty_anchor;
 	spinlock_t dirty_lock;
 	struct mapfree_info *mf;

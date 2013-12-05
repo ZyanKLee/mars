@@ -15,7 +15,7 @@
 
 #include "mars_client.h"
 
-#define CLIENT_HASH_MAX (PAGE_SIZE / sizeof(struct list_head))
+#define CLIENT_HASH_MAX 		(PAGE_SIZE / sizeof(struct list_head))
 
 ///////////////////////// own helper functions ////////////////////////
 
@@ -49,7 +49,7 @@ static int _request_info(struct client_output *output)
 		.cmd_code = CMD_GETINFO,
 	};
 	int status;
-	
+
 	MARS_DBG("\n");
 	status = mars_send_struct(&output->socket, &cmd, mars_cmd_meta);
 	if (unlikely(status < 0)) {
@@ -88,7 +88,7 @@ static int _connect(struct client_output *output, const char *str)
 		MARS_DBG("no sockaddr, status = %d\n", status);
 		goto done;
 	}
-	
+
 	status = mars_create_socket(&output->socket, &sockaddr, false);
 	if (unlikely(status < 0)) {
 		MARS_DBG("no socket, status = %d\n", status);
@@ -138,7 +138,7 @@ static int client_get_info(struct client_output *output, struct mars_info *info)
 	output->got_info = false;
 	output->get_info = true;
 	wake_up_interruptible(&output->event);
-	
+
 	wait_event_interruptible_timeout(output->info_event, output->got_info, 60 * HZ);
 	status = -EIO;
 	if (output->got_info && info) {
@@ -248,7 +248,7 @@ int receiver_thread(void *data)
 	struct client_output *output = data;
 	int status = 0;
 
-        while (!brick_thread_should_stop()) {
+	while (!brick_thread_should_stop()) {
 		struct mars_cmd cmd = {};
 		struct list_head *tmp;
 		struct client_mref_aspect *mref_a = NULL;
@@ -377,26 +377,26 @@ void _do_timeout(struct client_output *output, struct list_head *anchor, bool fo
 
 	if (io_timeout <= 0)
 		io_timeout = global_net_io_timeout;
-	
+
 	if (!mars_net_is_alive)
 		force = true;
-	
+
 	if (!force && io_timeout <= 0)
 		return;
-	
+
 	io_timeout *= HZ;
-	
+
 	spin_lock(&output->lock);
 	for (tmp = anchor->next, next = tmp->next; tmp != anchor; tmp = next, next = tmp->next) {
 		struct client_mref_aspect *mref_a;
 
 		mref_a = container_of(tmp, struct client_mref_aspect, io_head);
-		
+
 		if (!force &&
 		    !time_is_before_jiffies(mref_a->submit_jiffies + io_timeout)) {
 			continue;
 		}
-		
+
 		list_del_init(&mref_a->hash_head);
 		list_del_init(&mref_a->io_head);
 		list_add_tail(&mref_a->tmp_head, &tmp_list);
@@ -406,7 +406,7 @@ void _do_timeout(struct client_output *output, struct list_head *anchor, bool fo
 	while (!list_empty(&tmp_list)) {
 		struct client_mref_aspect *mref_a;
 		struct mref_object *mref;
-		
+
 		tmp = tmp_list.next;
 		list_del_init(tmp);
 		mref_a = container_of(tmp, struct client_mref_aspect, tmp_head);
@@ -439,7 +439,7 @@ static int sender_thread(void *data)
 
 	output->receiver.restart_count = 0;
 
-        while (!brick_thread_should_stop()) {
+	while (!brick_thread_should_stop()) {
 		struct list_head *tmp = NULL;
 		struct client_mref_aspect *mref_a;
 		struct mref_object *mref;
@@ -465,7 +465,7 @@ static int sender_thread(void *data)
 			 */
 			_do_resubmit(output);
 		}
-		
+
 		wait_event_interruptible_timeout(output->event,
 						 !list_empty(&output->mref_list) ||
 						 output->get_info ||
@@ -478,7 +478,7 @@ static int sender_thread(void *data)
 			brick_msleep(1000);
 			continue;
 		}
-		
+
 		if (output->get_info) {
 			status = _request_info(output);
 			if (status >= 0) {
@@ -602,8 +602,8 @@ char *client_statistics(struct client_brick *brick, int verbose)
 		 brick->io_timeout,
 		 atomic_read(&output->timeout_count),
 		 atomic_read(&output->fly_count));
-	
-        return res;
+
+	return res;
 }
 
 static
@@ -673,8 +673,8 @@ static int client_output_destruct(struct client_output *output)
 
 static struct client_brick_ops client_brick_ops = {
 	.brick_switch = client_switch,
-        .brick_statistics = client_statistics,
-        .reset_statistics = client_reset_statistics,
+	.brick_statistics = client_statistics,
+	.reset_statistics = client_reset_statistics,
 };
 
 static struct client_output_ops client_output_ops = {

@@ -25,15 +25,15 @@ extern int mapfree_grace_keep_mb;
 
 struct mapfree_info {
 	struct list_head mf_head;
-	char            *mf_name;
-	struct file     *mf_filp;
-	int              mf_flags;
-	atomic_t         mf_count;
-	spinlock_t       mf_lock;
-	loff_t           mf_min[2];
-	loff_t           mf_last;
-	loff_t           mf_max;
-	long long        mf_jiffies;
+	char		*mf_name;
+	struct file	*mf_filp;
+	int		 mf_flags;
+	atomic_t	 mf_count;
+	spinlock_t	 mf_lock;
+	loff_t		 mf_min[2];
+	loff_t		 mf_last;
+	loff_t		 mf_max;
+	long long	 mf_jiffies;
 };
 
 struct mapfree_info *mapfree_get(const char *filename, int flags);

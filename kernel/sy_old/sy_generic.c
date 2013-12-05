@@ -21,7 +21,7 @@
 #include <linux/kthread.h>
 #include <linux/statfs.h>
 
-#define SKIP_BIO false
+#define SKIP_BIO			false
 
 /////////////////////////////////////////////////////////////////////
 
@@ -67,7 +67,7 @@ int mars_stat(const char *path, struct kstat *stat, bool use_lstat)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	if (use_lstat) {
@@ -89,7 +89,7 @@ int mars_mkdir(const char *path)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_mkdir(path, 0700);
@@ -103,7 +103,7 @@ int mars_rmdir(const char *path)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_rmdir(path);
@@ -117,7 +117,7 @@ int mars_unlink(const char *path)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_unlink(path);
@@ -129,12 +129,12 @@ EXPORT_SYMBOL_GPL(mars_unlink);
 
 int mars_symlink(const char *oldpath, const char *newpath, const struct timespec *stamp, uid_t uid)
 {
-	char *tmp = backskip_replace(newpath, '/', true, "/.tmp-"); 
+	char *tmp = backskip_replace(newpath, '/', true, "/.tmp-");
 	mm_segment_t oldfs;
 	struct kstat stat = {};
 	struct timespec times[2];
 	int status = -ENOMEM;
-	
+
 	if (unlikely(!tmp))
 		goto done;
 
@@ -142,7 +142,7 @@ int mars_symlink(const char *oldpath, const char *newpath, const struct timespec
 		memcpy(&times[0], stamp, sizeof(times[0]));
 	else
 		get_lamport(&times[0]);
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	/* Some filesystems have only full second resolution.
@@ -220,7 +220,7 @@ char *mars_readlink(const char *newpath)
 
 done_put:
 	path_put(&path);
-	
+
 done_fs:
 	set_fs(oldfs);
 
@@ -236,7 +236,7 @@ int mars_rename(const char *oldpath, const char *newpath)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_rename(oldpath, newpath);
@@ -250,7 +250,7 @@ int mars_chmod(const char *path, mode_t mode)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_chmod(path, mode);
@@ -264,7 +264,7 @@ int mars_lchown(const char *path, uid_t uid)
 {
 	mm_segment_t oldfs;
 	int status;
-	
+
 	oldfs = get_fs();
 	set_fs(get_ds());
 	status = sys_lchown(path, uid, 0);
@@ -329,7 +329,7 @@ void mars_remaining_space(const char *fspath, loff_t *total, loff_t *remaining)
 
 	*total = _compute_space(&kstatfs, kstatfs.f_blocks);
 	*remaining = _compute_space(&kstatfs, kstatfs.f_bfree);
-	
+
 done:
 	path_put(&path);
 err: ;
@@ -529,9 +529,9 @@ int get_inode(char *newpath, struct mars_dent *dent)
 	if (S_ISLNK(dent->new_stat.mode)) {
 		struct path path = {};
 		int len = dent->new_stat.size;
-                struct inode *inode;
+		struct inode *inode;
 		char *link;
-		
+
 		if (unlikely(len <= 0)) {
 			MARS_ERR("symlink '%s' bad len = %d\n", newpath, len);
 			status = -EINVAL;
@@ -544,7 +544,7 @@ int get_inode(char *newpath, struct mars_dent *dent)
 			goto done;
 		}
 
-                inode = path.dentry->d_inode;
+		inode = path.dentry->d_inode;
 
 		status = -ENOMEM;
 		link = brick_string_alloc(0);
@@ -660,13 +660,13 @@ static int _mars_readdir(struct mars_cookie *cookie)
 {
 	struct file *f;
 	struct address_space *mapping;
-        mm_segment_t oldfs;
+	mm_segment_t oldfs;
 	int status = 0;
 
-        oldfs = get_fs();
-        set_fs(get_ds());
-        f = filp_open(cookie->path, O_DIRECTORY | O_RDONLY, 0);
-        set_fs(oldfs);
+	oldfs = get_fs();
+	set_fs(get_ds());
+	f = filp_open(cookie->path, O_DIRECTORY | O_RDONLY, 0);
+	set_fs(oldfs);
 	if (unlikely(IS_ERR(f))) {
 		return PTR_ERR(f);
 	}
@@ -920,7 +920,7 @@ EXPORT_SYMBOL_GPL(mars_kill_dent);
 void mars_free_dent(struct mars_dent *dent)
 {
 	int i;
-	
+
 	mars_kill_dent(dent);
 
 	CHECK_HEAD_EMPTY(&dent->dent_link);
@@ -1086,7 +1086,7 @@ struct mars_brick *mars_make_brick(struct mars_global *global, struct mars_dent 
 	int size;
 	int i;
 	int status;
-	
+
 	size = brick_type->brick_size +
 		(brick_type->max_inputs + brick_type->max_outputs) * sizeof(void*);
 	input_types = brick_type->default_input_types;
@@ -1115,7 +1115,7 @@ struct mars_brick *mars_make_brick(struct mars_global *global, struct mars_dent 
 		}
 		size += type->output_size;
 	}
-	
+
 	res = brick_zmem_alloc(size);
 	res->global = global;
 	INIT_LIST_HEAD(&res->dent_brick_link);
@@ -1521,7 +1521,7 @@ struct mars_brick *make_brick_all(
 		if (remote) {
 			remote++;
 			MARS_DBG("substitute by remote brick '%s' on peer '%s'\n", new_name, remote);
-			
+
 			brick = mars_make_brick(global, belongs, _client_brick_type, new_path, new_name);
 			if (brick) {
 				struct client_brick *_brick = (void*)brick;
@@ -1698,7 +1698,7 @@ void show_statistics(struct mars_global *global, const char *class)
 
 	if (!global_show_statist)
 		return; // silently
-	
+
 	brick_mem_statistics();
 
 	down_read(&global->brick_mutex);
@@ -1709,7 +1709,7 @@ void show_statistics(struct mars_global *global, const char *class)
 		_show_one(test, &brick_count);
 	}
 	up_read(&global->brick_mutex);
-	
+
 	MARS_DBG("================================== %s dents:\n", class);
 	down_read(&global->dent_mutex);
 	for (tmp = global->dent_anchor.next; tmp != &global->dent_anchor; tmp = tmp->next) {

@@ -5,7 +5,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#define LIMITER_TIME_RESOLUTION NSEC_PER_SEC
+#define LIMITER_TIME_RESOLUTION 	NSEC_PER_SEC
 
 int mars_limit(struct mars_limiter *lim, int amount)
 {
@@ -36,7 +36,7 @@ int mars_limit(struct mars_limiter *lim, int amount)
 			   window < (long long)lim->lim_max_window * (LIMITER_TIME_RESOLUTION / 1000))) {
 			long long rate_raw;
 			int rate;
-			
+
 			/* Races are possible, but taken into account.
 			 * There is no real harm from rarely lost updates.
 			 */
@@ -45,14 +45,14 @@ int mars_limit(struct mars_limiter *lim, int amount)
 				lim->lim_cumul += amount;
 				lim->lim_count++;
 			}
-			
+
 			rate_raw = lim->lim_accu * LIMITER_TIME_RESOLUTION / window;
 			rate = rate_raw;
 			if (unlikely(rate_raw > INT_MAX)) {
 				rate = INT_MAX;
 			}
 			lim->lim_rate = rate;
-			
+
 			// limit exceeded?
 			if (lim->lim_max_rate > 0 && rate > lim->lim_max_rate) {
 				int this_delay = (window * rate / lim->lim_max_rate - window) / (LIMITER_TIME_RESOLUTION / 1000);

@@ -42,7 +42,7 @@ void mapfree_pages(struct mapfree_info *mf, int grace_keep)
 	} else {
 		loff_t tmp;
 		loff_t min;
-		
+
 		spin_lock(&mf->mf_lock);
 
 		min = tmp = mf->mf_min[0];
@@ -65,7 +65,7 @@ void mapfree_pages(struct mapfree_info *mf, int grace_keep)
 				start--;
 			mf->mf_last = min;
 			end   = min / PAGE_SIZE;
-		} else  { // there was no progress for at least 2 rounds
+		} else	{ // there was no progress for at least 2 rounds
 			start = 0;
 			if (!grace_keep) // also flush thoroughly
 				end = -1;
@@ -120,7 +120,7 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 			}
 		}
 		up_read(&mapfree_mutex);
-	
+
 		if (mf)
 			goto done;
 	}
@@ -176,7 +176,7 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 			inode->i_bdev->bd_disk->queue->backing_dev_info.ra_pages = ra;
 		}
 
-		if (flags & O_DIRECT) {	// never share them
+		if (flags & O_DIRECT) { // never share them
 			break;
 		}
 
@@ -225,7 +225,7 @@ int mapfree_thread(void *data)
 
 		if (mapfree_period_sec <= 0)
 			continue;
-		
+
 		down_read(&mapfree_mutex);
 
 		for (tmp = mapfree_list.next; tmp != &mapfree_list; tmp = tmp->next) {

@@ -10,7 +10,7 @@
  * of some simple histogram statistics.
  */
 
-#define TIMING_MAX 24
+#define TIMING_MAX			24
 
 struct timing_stats {
 #ifdef CONFIG_MARS_DEBUG
@@ -43,12 +43,12 @@ struct timing_stats {
 	({								\
 		unsigned long long _time;				\
 		unsigned long _tmp;					\
-		int _i;							\
+		int _i; 						\
 									\
 		_time = _TIME_THIS(_stamp1, _stamp2, _CODE);		\
 									\
 		_tmp = _time / 1000;	/* convert to us */		\
-		_i = 0;							\
+		_i = 0; 						\
 		while (_tmp > 0 && _i < TIMING_MAX - 1) {		\
 			_tmp >>= 1;					\
 			_i++;						\
@@ -71,10 +71,10 @@ extern int report_timing(struct timing_stats *tim, char *str, int maxlen);
 #define _TIME_STATS(_timing, _stamp1, _stamp2, _CODE)			\
 	((void)_timing, (_stamp1) = (_stamp2) = cpu_clock(raw_smp_processor_id()), _CODE, 0)
 
-#define TIME_STATS(_timing, _CODE)		\
+#define TIME_STATS(_timing, _CODE)					\
 	((void)_timing, _CODE, 0)
 
-#define report_timing(tim,str,maxlen)   ((void)tim, 0)
+#define report_timing(tim,str,maxlen)	((void)tim, 0)
 
 #endif // CONFIG_MARS_DEBUG
 
@@ -133,7 +133,7 @@ struct threshold {
 	// tunables
 	int  thr_limit;   // in us
 	int  thr_factor;  // in %
-	int  thr_plus;    // in us
+	int  thr_plus;	  // in us
 	// statistical
 	int thr_triggered;
 	int thr_true_hit;

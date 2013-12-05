@@ -113,7 +113,7 @@ int write_aops(struct sio_output *output, struct mref_object *mref)
 	return ret;
 }
 
-static 
+static
 int read_aops(struct sio_output *output, struct mref_object *mref)
 {
 	loff_t pos = mref->ref_pos;
@@ -254,7 +254,7 @@ void sio_ref_io(struct sio_output *output, struct mref_object *mref)
 static int sio_thread(void *data)
 {
 	struct sio_threadinfo *tinfo = data;
-	
+
 	MARS_INF("sio thread has started.\n");
 	//set_user_nice(current, -20);
 
@@ -271,7 +271,7 @@ static int sio_thread(void *data)
 		tinfo->last_jiffies = jiffies;
 
 		spin_lock(&tinfo->lock);
-		
+
 		if (!list_empty(&tinfo->mref_list)) {
 			tmp = tinfo->mref_list.next;
 			list_del_init(tmp);
@@ -403,7 +403,7 @@ static int sio_switch(struct sio_brick *brick)
 		set_fs(get_ds());
 		output->filp = filp_open(path, flags, prot);
 		set_fs(oldfs);
-		
+
 		if (unlikely(IS_ERR(output->filp))) {
 			status = PTR_ERR(output->filp);
 			MARS_ERR("can't open file '%s' status=%d\n", path, status);
@@ -420,7 +420,7 @@ static int sio_switch(struct sio_brick *brick)
 		output->index = 0;
 		for (index = 0; index <= WITH_THREAD; index++) {
 			struct sio_threadinfo *tinfo = &output->tinfo[index];
-			
+
 			tinfo->last_jiffies = jiffies;
 			tinfo->thread = brick_thread_create(sio_thread, tinfo, "mars_sio%d", sio_nr++);
 			if (unlikely(!tinfo->thread)) {

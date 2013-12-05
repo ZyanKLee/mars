@@ -11,7 +11,7 @@
 extern int mars_net_default_port;
 extern bool mars_net_is_alive;
 
-#define MAX_DESC_CACHE  16
+#define MAX_DESC_CACHE			16
 
 /* The original struct socket has no refcount. This leads to problems
  * during long-lasting system calls when racing with socket shutdown.
@@ -57,8 +57,8 @@ enum {
 	CMD_CB,
 };
 
-#define CMD_FLAG_MASK     255
-#define CMD_FLAG_HAS_DATA 256
+#define CMD_FLAG_MASK			255
+#define CMD_FLAG_HAS_DATA		256
 
 struct mars_cmd {
 	struct timespec cmd_stamp; // for automatic lamport clock
@@ -94,7 +94,7 @@ extern int mars_recv_raw(struct mars_socket *msock, void *buf, int minlen, int m
 extern int mars_send_struct(struct mars_socket *msock, const void *data, const struct meta *meta);
 #define mars_recv_struct(_sock_,_data_,_meta_)				\
 	({								\
-		_mars_recv_struct(_sock_, _data_, _meta_, __LINE__); \
+		_mars_recv_struct(_sock_, _data_, _meta_, __LINE__);	\
 	})
 extern int _mars_recv_struct(struct mars_socket *msock, void *data, const struct meta *meta, int line);
 

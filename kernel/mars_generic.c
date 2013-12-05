@@ -52,8 +52,8 @@ EXPORT_SYMBOL_GPL(my_id);
 // object stuff
 
 const struct generic_object_type mref_type = {
-        .object_type_name = "mref",
-        .default_size = sizeof(struct mref_object),
+	.object_type_name = "mref",
+	.default_size = sizeof(struct mref_object),
 	.object_type_nr = OBJ_TYPE_MREF,
 };
 EXPORT_SYMBOL_GPL(mref_type);
@@ -67,26 +67,26 @@ EXPORT_SYMBOL_GPL(mref_type);
 // meta descriptions
 
 const struct meta mars_info_meta[] = {
-	META_INI(current_size,    struct mars_info, FIELD_INT),
-	META_INI(tf_align,        struct mars_info, FIELD_INT),
-	META_INI(tf_min_size,     struct mars_info, FIELD_INT),
+	META_INI(current_size,	  struct mars_info, FIELD_INT),
+	META_INI(tf_align,	  struct mars_info, FIELD_INT),
+	META_INI(tf_min_size,	  struct mars_info, FIELD_INT),
 	{}
 };
 EXPORT_SYMBOL_GPL(mars_info_meta);
 
 const struct meta mars_mref_meta[] = {
 	META_INI(_object_cb.cb_error, struct mref_object, FIELD_INT),
-	META_INI(ref_pos,          struct mref_object, FIELD_INT),
-	META_INI(ref_len,          struct mref_object, FIELD_INT),
+	META_INI(ref_pos,	   struct mref_object, FIELD_INT),
+	META_INI(ref_len,	   struct mref_object, FIELD_INT),
 	META_INI(ref_may_write,    struct mref_object, FIELD_INT),
-	META_INI(ref_prio,         struct mref_object, FIELD_INT),
-	META_INI(ref_cs_mode,      struct mref_object, FIELD_INT),
-	META_INI(ref_timeout,      struct mref_object, FIELD_INT),
+	META_INI(ref_prio,	   struct mref_object, FIELD_INT),
+	META_INI(ref_cs_mode,	   struct mref_object, FIELD_INT),
+	META_INI(ref_timeout,	   struct mref_object, FIELD_INT),
 	META_INI(ref_total_size,   struct mref_object, FIELD_INT),
-	META_INI(ref_checksum,     struct mref_object, FIELD_RAW),
-	META_INI(ref_flags,        struct mref_object, FIELD_INT),
-	META_INI(ref_rw,           struct mref_object, FIELD_INT),
-	META_INI(ref_id,           struct mref_object, FIELD_INT),
+	META_INI(ref_checksum,	   struct mref_object, FIELD_RAW),
+	META_INI(ref_flags,	   struct mref_object, FIELD_INT),
+	META_INI(ref_rw,	   struct mref_object, FIELD_INT),
+	META_INI(ref_id,	   struct mref_object, FIELD_INT),
 	{}
 };
 EXPORT_SYMBOL_GPL(mars_mref_meta);

@@ -35,57 +35,57 @@ struct log_header_v1 {
 	int    l_crc;
 };
 
-#define FORMAT_VERSION   1 // version of disk format, currently there is no other one
+#define FORMAT_VERSION			1 // version of disk format, currently there is no other one
 
-#define CODE_UNKNOWN     0
-#define CODE_WRITE_NEW   1
-#define CODE_WRITE_OLD   2
+#define CODE_UNKNOWN			0
+#define CODE_WRITE_NEW			1
+#define CODE_WRITE_OLD			2
 
-#define START_MAGIC  0xa8f7e908d9177957ll
-#define END_MAGIC    0x74941fb74ab5726dll
+#define START_MAGIC			0xa8f7e908d9177957ll
+#define END_MAGIC			0x74941fb74ab5726dll
 
-#define START_OVERHEAD						\
-	(							\
-		sizeof(START_MAGIC) +				\
-		sizeof(char) +					\
-		sizeof(char) +					\
-		sizeof(short) +					\
-		sizeof(struct timespec) +			\
-		sizeof(loff_t) +				\
-		sizeof(int) +					\
-		sizeof(int) +					\
-		sizeof(short) +					\
-		sizeof(short) +					\
-		0						\
+#define START_OVERHEAD							\
+	(								\
+		sizeof(START_MAGIC) +					\
+		sizeof(char) +						\
+		sizeof(char) +						\
+		sizeof(short) + 					\
+		sizeof(struct timespec) +				\
+		sizeof(loff_t) +					\
+		sizeof(int) +						\
+		sizeof(int) +						\
+		sizeof(short) + 					\
+		sizeof(short) + 					\
+		0							\
 	)
 
-#define END_OVERHEAD						\
-	(							\
-		sizeof(END_MAGIC) +				\
-		sizeof(int) +					\
-		sizeof(char) +					\
-		3 + 4 /*spare*/ +				\
-		sizeof(struct timespec) +			\
-		0						\
+#define END_OVERHEAD							\
+	(								\
+		sizeof(END_MAGIC) +					\
+		sizeof(int) +						\
+		sizeof(char) +						\
+		3 + 4 /*spare*/ +					\
+		sizeof(struct timespec) +				\
+		0							\
 	)
 
-#define OVERHEAD (START_OVERHEAD + END_OVERHEAD)
+#define OVERHEAD			(START_OVERHEAD + END_OVERHEAD)
 
 // TODO: make this bytesex-aware.
-#define DATA_PUT(data,offset,val)				\
-	do {							\
-		*((typeof(val)*)((data)+offset)) = val;		\
-		offset += sizeof(val);				\
+#define DATA_PUT(data,offset,val)					\
+	do {								\
+		*((typeof(val)*)((data)+offset)) = val; 		\
+		offset += sizeof(val);					\
 	} while (0)
 
-#define DATA_GET(data,offset,val)				\
-	do {							\
-		val = *((typeof(val)*)((data)+offset));		\
-		offset += sizeof(val);				\
+#define DATA_GET(data,offset,val)					\
+	do {								\
+		val = *((typeof(val)*)((data)+offset)); 		\
+		offset += sizeof(val);					\
 	} while (0)
 
-#define SCAN_TXT "at file_pos = %lld file_offset = %d scan_offset = %d (%lld) test_offset = %d (%lld) restlen = %d: "
-#define SCAN_PAR file_pos, file_offset, offset, file_pos + file_offset + offset, i, file_pos + file_offset + i, restlen
+#define SCAN_TXT			"at file_pos = %lld file_offset = %d scan_offset = %d (%lld) test_offset = %d (%lld) restlen = %d: "
+#define SCAN_PAR			file_pos, file_offset, offset, file_pos + file_offset + offset, i, file_pos + file_offset + i, restlen
 
 static inline
 int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, struct log_header *lh, void **payload, int *payload_len, unsigned int *seq_nr)
@@ -232,7 +232,7 @@ struct log_status {
 	// tunables
 	int align_size;   // alignment between requests
 	int chunk_size;   // must be at least 8K (better 64k)
-	int max_size;     // max payload length
+	int max_size;	  // max payload length
 	int io_prio;
 	bool do_crc;
 	// informational

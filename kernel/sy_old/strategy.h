@@ -3,12 +3,12 @@
 #ifndef _OLD_STRATEGY
 #define _OLD_STRATEGY
 
-#define _STRATEGY // call this only in strategy bricks, never in ordinary bricks
+#define _STRATEGY			// call this only in strategy bricks, never in ordinary bricks
 
 #include "../mars.h"
 
-#define MARS_ARGV_MAX 4
-#define MARS_PATH_MAX 256
+#define MARS_ARGV_MAX			4
+#define MARS_PATH_MAX			256
 
 extern loff_t global_total_space;
 extern loff_t global_remaining_space;
@@ -30,12 +30,12 @@ extern int mars_fast_fullsync;
 
 extern char *my_id(void);
 
-#define MARS_DENT(TYPE)							\
+#define MARS_DENT(TYPE) 						\
 	struct list_head dent_link;					\
 	struct list_head brick_list;					\
 	struct TYPE *d_parent;						\
-	char *d_argv[MARS_ARGV_MAX];  /* for internal use, will be automatically deallocated*/ \
-	char *d_args; /* ditto uninterpreted */				\
+	char *d_argv[MARS_ARGV_MAX];  /* for internal use, will be automatically deallocated*/\
+	char *d_args; /* ditto uninterpreted */ 			\
 	char *d_name; /* current path component */			\
 	char *d_rest; /* some "meaningful" rest of d_name*/		\
 	char *d_path; /* full absolute path */				\
@@ -43,15 +43,15 @@ extern char *my_id(void);
 	int   d_namelen;						\
 	int   d_pathlen;						\
 	int   d_depth;							\
-	unsigned int d_type; /* from readdir() => often DT_UNKNOWN => don't rely on it, use new_stat.mode instead */ \
-	int   d_class;    /* for pre-grouping order */			\
+	unsigned int d_type; /* from readdir() => often DT_UNKNOWN => don't rely on it, use new_stat.mode instead */\
+	int   d_class;	  /* for pre-grouping order */			\
 	int   d_serial;   /* for pre-grouping order */			\
-	int   d_version;  /* dynamic programming per call of mars_ent_work() */ \
+	int   d_version;  /* dynamic programming per call of mars_ent_work() */\
 	char d_once_error;						\
 	bool d_killme;							\
 	bool d_use_channel;						\
 	struct kstat new_stat;						\
-	char *new_link;							\
+	char *new_link; 						\
 	struct mars_global *d_global;					\
 	void (*d_private_destruct)(void *private);			\
 	void *d_private;
@@ -104,9 +104,9 @@ extern char *_vpath_make(int line, const char *fmt, va_list *args);
 extern char *_path_make(int line, const char *fmt, ...);
 extern char *_backskip_replace(int line, const char *path, char delim, bool insert, const char *fmt, ...);
 
-#define vpath_make(_fmt, _args)			\
+#define vpath_make(_fmt, _args) 					\
 	_vpath_make(__LINE__, _fmt, _args)
-#define path_make(_fmt, _args...)		\
+#define path_make(_fmt, _args...)					\
 	_path_make(__LINE__, _fmt, ##_args)
 #define backskip_replace(_path, _delim, _insert, _fmt, _args...)	\
 	_backskip_replace(__LINE__, _path, _delim, _insert, _fmt, ##_args)

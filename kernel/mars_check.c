@@ -30,16 +30,16 @@
 
 #define CHECK_ERR(output,fmt,args...)					\
 	do {								\
-		struct check_input *input = (output)->brick->inputs[0];	\
+		struct check_input *input = (output)->brick->inputs[0]; \
 		struct generic_output *other = (void*)input->connect;	\
 		if (other) {						\
 			MARS_ERR("instance %d/%s: " fmt,		\
-				 (output)->instance_nr,			\
+				 (output)->instance_nr, 		\
 				 other->type->type_name,		\
 				 ##args);				\
 		} else {						\
 			MARS_ERR("instance %d: " fmt,			\
-				 (output)->instance_nr,			\
+				 (output)->instance_nr, 		\
 				 ##args);				\
 		}							\
 	} while (0)

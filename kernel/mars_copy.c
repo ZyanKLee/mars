@@ -13,16 +13,16 @@
 #include "lib_limiter.h"
 
 #ifndef READ
-#define READ  0
-#define WRITE 1
+#define READ				0
+#define WRITE				1
 #endif
 
-#define COPY_CHUNK         (PAGE_SIZE)
-#define NR_COPY_REQUESTS   (32 * 1024 * 1024 / COPY_CHUNK)
+#define COPY_CHUNK			(PAGE_SIZE)
+#define NR_COPY_REQUESTS		(32 * 1024 * 1024 / COPY_CHUNK)
 
-#define STATES_PER_PAGE    (PAGE_SIZE / sizeof(struct copy_state))
-#define MAX_SUB_TABLES     (NR_COPY_REQUESTS / STATES_PER_PAGE + (NR_COPY_REQUESTS % STATES_PER_PAGE ? 1 : 0))
-#define MAX_COPY_REQUESTS  (PAGE_SIZE / sizeof(struct copy_state*) * STATES_PER_PAGE)
+#define STATES_PER_PAGE 		(PAGE_SIZE / sizeof(struct copy_state))
+#define MAX_SUB_TABLES			(NR_COPY_REQUESTS / STATES_PER_PAGE + (NR_COPY_REQUESTS % STATES_PER_PAGE ? 1 : 0))
+#define MAX_COPY_REQUESTS		(PAGE_SIZE / sizeof(struct copy_state*) * STATES_PER_PAGE)
 
 #define GET_STATE(brick,index)						\
 	((brick)->st[(index) / STATES_PER_PAGE][(index) % STATES_PER_PAGE])
@@ -49,7 +49,7 @@ EXPORT_SYMBOL_GPL(mars_copy_write_max_fly);
 #define is_read_limited(brick)						\
 	(mars_copy_read_max_fly > 0 && atomic_read(&(brick)->copy_read_flight) >= mars_copy_read_max_fly)
 
-#define is_write_limited(brick)						\
+#define is_write_limited(brick) 					\
 	(mars_copy_write_max_fly > 0 && atomic_read(&(brick)->copy_write_flight) >= mars_copy_write_max_fly)
 
 ///////////////////////// own helper functions ////////////////////////
@@ -129,7 +129,7 @@ int _determine_input(struct copy_brick *brick, struct mref_object *mref)
 	return INPUT_A_IO;
 }
 
-#define GET_INDEX(pos)    (((pos) / COPY_CHUNK) % NR_COPY_REQUESTS)
+#define GET_INDEX(pos)	  (((pos) / COPY_CHUNK) % NR_COPY_REQUESTS)
 #define GET_OFFSET(pos)   ((pos) % COPY_CHUNK)
 
 static
@@ -286,7 +286,7 @@ int _make_mref(struct copy_brick *brick, int index, int queue, void *data, loff_
 		mref->ref_prio = brick->io_prio;
 
 	SETUP_CALLBACK(mref, copy_endio, mref_a);
-	
+
 	input = queue ? brick->inputs[INPUT_B_COPY] : brick->inputs[INPUT_A_COPY];
 	status = GENERIC_INPUT_CALL(input, mref_get, mref);
 	if (unlikely(status < 0)) {
@@ -430,7 +430,7 @@ restart:
 		}
 		// do verify (when applicable)
 		mref1 = st->table[1];
-		if (mref1 && state != COPY_STATE_READ3) { 
+		if (mref1 && state != COPY_STATE_READ3) {
 			int len = mref0->ref_len;
 			bool ok;
 
@@ -671,7 +671,7 @@ static int _copy_thread(void *data)
 	mars_power_led_on((void*)brick, true);
 	brick->trigger = true;
 
-        while (!_is_done(brick)) {
+	while (!_is_done(brick)) {
 		loff_t old_start = brick->copy_start;
 		loff_t old_end = brick->copy_end;
 		int progress = 0;
@@ -789,7 +789,7 @@ static
 char *copy_statistics(struct copy_brick *brick, int verbose)
 {
 	char *res = brick_string_alloc(1024);
-	
+
 	snprintf(res, 1024,
 		 "copy_start = %lld "
 		 "copy_last = %lld "
@@ -820,7 +820,7 @@ char *copy_statistics(struct copy_brick *brick, int verbose)
 		 atomic_read(&brick->copy_read_flight),
 		 atomic_read(&brick->copy_write_flight));
 
-        return res;
+	return res;
 }
 
 static
@@ -911,8 +911,8 @@ static int copy_output_destruct(struct copy_output *output)
 
 static struct copy_brick_ops copy_brick_ops = {
 	.brick_switch = copy_switch,
-        .brick_statistics = copy_statistics,
-        .reset_statistics = copy_reset_statistics,
+	.brick_statistics = copy_statistics,
+	.reset_statistics = copy_reset_statistics,
 };
 
 static struct copy_output_ops copy_output_ops = {

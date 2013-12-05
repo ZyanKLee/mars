@@ -107,7 +107,7 @@ int make_bio(struct bio_brick *brick, void *data, int len, loff_t pos, struct bi
 		goto out;
 	}
 
-	sector = pos >> 9;                     // TODO: make dynamic
+	sector = pos >> 9;		       // TODO: make dynamic
 	sector_offset = pos & ((1 << 9) - 1);  // TODO: make dynamic
 	data_offset = ((unsigned long)data) & ((1 << 9) - 1);  // TODO: make dynamic
 
@@ -489,7 +489,7 @@ int bio_response_thread(void *data)
 					goto done;
 				break;
 			}
-			
+
 			tmp = tmp_list.next;
 			list_del_init(tmp);
 			atomic_dec(&brick->completed_count);
@@ -497,12 +497,12 @@ int bio_response_thread(void *data)
 			mref_a = container_of(tmp, struct bio_mref_aspect, io_head);
 			mref = mref_a->object;
 
-			
+
 			latency = cpu_clock(raw_smp_processor_id()) - mref_a->start_stamp;
 			threshold_check(&bio_io_threshold[mref->ref_rw & 1], latency);
 
 			code = mref_a->status_code;
-		
+
 			if (code < 0) {
 				MARS_ERR("IO error %d\n", code);
 			} else {
@@ -556,7 +556,7 @@ done:
 static
 bool _bg_should_run(struct bio_brick *brick)
 {
-	return (atomic_read(&brick->queue_count[2]) > 0 && 
+	return (atomic_read(&brick->queue_count[2]) > 0 &&
 		atomic_read(&brick->fly_count[0]) + atomic_read(&brick->fly_count[1]) <= brick->bg_threshold &&
 		(brick->bg_maxfly <= 0 || atomic_read(&brick->fly_count[2]) < brick->bg_maxfly));
 }
@@ -597,7 +597,7 @@ int bio_submit_thread(void *data)
 				bool cork;
 
 				list_del_init(tmp);
-				
+
 				mref_a = container_of(tmp, struct bio_mref_aspect, io_head);
 				mref = mref_a->object;
 				if (unlikely(!mref)) {
@@ -607,7 +607,7 @@ int bio_submit_thread(void *data)
 
 				atomic_dec(&brick->queue_count[PRIO_INDEX(mref)]);
 				cork = atomic_read(&brick->queue_count[PRIO_INDEX(mref)]) > 0;
-				
+
 				_bio_ref_io(mref_a->output, mref, cork);
 
 				BIO_REF_PUT(mref_a->output, mref);
@@ -625,9 +625,9 @@ static int bio_switch(struct bio_brick *brick)
 	if (brick->power.button) {
 		if (brick->power.led_on)
 			goto done;
-		
+
 		mars_power_led_off((void*)brick, false);
-		
+
 		if (!brick->bdev) {
 			static int index = 0;
 			const char *path = brick->brick_path;
@@ -642,7 +642,7 @@ static int bio_switch(struct bio_brick *brick)
 				MARS_ERR("cannot open file '%s'\n", path);
 				goto done;
 			}
-			
+
 			if (unlikely(!(mapping = brick->mf->mf_filp->f_mapping) ||
 				     !(inode = mapping->host))) {
 				MARS_ERR("internal problem with '%s'\n", path);
@@ -680,9 +680,9 @@ static int bio_switch(struct bio_brick *brick)
 			}
 		}
 	}
-	
+
 	mars_power_led_on((void*)brick, brick->power.button && brick->bdev != NULL);
-	
+
  done:
 	if (status < 0 || !brick->power.button) {
 		if (brick->mf) {

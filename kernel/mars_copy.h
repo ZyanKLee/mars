@@ -5,10 +5,10 @@
 #include <linux/wait.h>
 #include <linux/semaphore.h>
 
-#define INPUT_A_IO   0
-#define INPUT_A_COPY 1
-#define INPUT_B_IO   2
-#define INPUT_B_COPY 3
+#define INPUT_A_IO			0
+#define INPUT_A_COPY			1
+#define INPUT_B_IO			2
+#define INPUT_B_COPY			3
 
 extern int mars_copy_overlap;
 extern int mars_copy_read_prio;

@@ -13,7 +13,7 @@
 
 #define USE_BUFFERING
 
-#define SEND_PROTO_VERSION   1
+#define SEND_PROTO_VERSION		1
 
 ////////////////////////////////////////////////////////////////////
 
@@ -24,7 +24,7 @@
  * automatically; therefore classical "int" or "long long" etc is viable.
  */
 
-#define MAX_FIELD_LEN   (32 + 16)
+#define MAX_FIELD_LEN			(32 + 16)
 
 struct mars_desc_cache {
 	u64   cache_sender_cookie;
@@ -53,7 +53,7 @@ struct mars_desc_item {
 
 /* This must not be mirror symmetric between big and little endian
  */
-#define MARS_DESC_MAGIC 0x73D0A2EC6148F48Ell
+#define MARS_DESC_MAGIC 		0x73D0A2EC6148F48Ell
 
 struct mars_desc_header {
 	u64 h_magic;
@@ -64,7 +64,7 @@ struct mars_desc_header {
 	u64 h_spare2;
 };
 
-#define MAX_INT_TRANSFER 16
+#define MAX_INT_TRANSFER		16
 
 ////////////////////////////////////////////////////////////////////
 
@@ -568,7 +568,7 @@ restart:
 		status = _mars_send_raw(msock, msock->s_buffer, msock->s_pos);
 		if (status < 0)
 			goto done;
-		
+
 		brick_block_free(msock->s_buffer, PAGE_SIZE);
 		msock->s_buffer = NULL;
 		msock->s_pos = 0;
@@ -707,7 +707,7 @@ int _add_fields(struct mars_desc_item *mi, const struct meta *meta, int offset, 
 			count = -1;
 			goto done;
 		}
-		
+
 		len = snprintf(mi->field_name, MAX_FIELD_LEN, "%s.%s", prefix, meta->field_name);
 		if (unlikely(len >= MAX_FIELD_LEN)) {
 			MARS_ERR("field len overflow on '%s.%s'\n", prefix, meta->field_name);
@@ -835,10 +835,10 @@ void make_recver_cache(struct mars_desc_cache *mc, const struct meta *meta)
 	}
 }
 
-#define _CHECK_STATUS(_txt_)					\
-	if (unlikely(status < 0)) {				\
-		MARS_DBG("%s status = %d\n", _txt_, status);	\
-		goto err;					\
+#define _CHECK_STATUS(_txt_)						\
+	if (unlikely(status < 0)) {					\
+		MARS_DBG("%s status = %d\n", _txt_, status);		\
+		goto err;						\
 	}
 
 static
@@ -880,7 +880,7 @@ int _desc_send_item(struct mars_socket *msock, const void *data, const struct ma
 			int diff = transfer_len - data_len;
 			char empty[diff];
 			char sign;
-			
+
 			sign = get_sign(item, data_len, myself_is_bigendian, is_signed);
 			memset(empty, sign, diff);
 
@@ -945,7 +945,7 @@ int _desc_send_item(struct mars_socket *msock, const void *data, const struct ma
 				item += end;
 			}
 			goto raw;
-		}		
+		}
 	case FIELD_STRING:
 		item = *(void**)item;
 		data_len = 0;
@@ -1039,7 +1039,7 @@ int _desc_recv_item(struct mars_socket *msock, void *data, const struct mars_des
 			while (--diff >= 0) {
 				if (unlikely(empty[diff] != check)) {
 					MARS_ERR("field '%s' %sSIGNED INTEGER OVERFLOW on size reduction from %d to %d, byte %d != %d\n",
-						 mi->field_name, 
+						 mi->field_name,
 						 is_signed ? "" : "UN",
 						 transfer_len,
 						 data_len,
@@ -1051,7 +1051,7 @@ int _desc_recv_item(struct mars_socket *msock, void *data, const struct mars_des
 			if (is_signed && item &&
 			    unlikely(get_sign(item, data_len, myself_is_bigendian, true) != check)) {
 				MARS_ERR("field '%s' SIGNED INTEGER OVERLOW on reduction from size %d to %d, byte %d !~ %d\n",
-					 mi->field_name, 
+					 mi->field_name,
 					 transfer_len,
 					 data_len,
 					 ((char*)item)[data_len - 1],
@@ -1089,10 +1089,10 @@ int _desc_recv_item(struct mars_socket *msock, void *data, const struct mars_des
 			} else {
 				memset(item + transfer_len, sign, diff);
 			}
-			
+
 			res = data_len;
 			break;
-		}		
+		}
 	case FIELD_STRING:
 		data_len = 0;
 		status = mars_recv_raw(msock, &data_len, sizeof(data_len), sizeof(data_len));
@@ -1203,7 +1203,7 @@ int desc_recv_struct(struct mars_socket *msock, void *data, const struct meta *m
 {
 	struct mars_desc_header header = {};
 	struct mars_desc_cache *mc;
-	int cache_index; 
+	int cache_index;
 	int index;
 	int count = 0;
 	int status = 0;

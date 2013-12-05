@@ -143,7 +143,7 @@ static int usebuf_ref_get(struct usebuf_output *output, struct mref_object *mref
 		sub_mref = sub_mref_a->object;
 #if 1
 		MARS_ERR("please do not use this broken feature\n");
-#endif		
+#endif
 	}
 
 	status = GENERIC_INPUT_CALL(input, mref_get, sub_mref);

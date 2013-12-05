@@ -20,8 +20,8 @@
 
 #include "mars_aio.h"
 
-#define MARS_MAX_AIO      1024
-#define MARS_MAX_AIO_READ 32
+#define MARS_MAX_AIO			1024
+#define MARS_MAX_AIO_READ		32
 
 static struct timing_stats timings[3] = {};
 
@@ -201,7 +201,7 @@ static int aio_ref_get(struct aio_output *output, struct mref_object *mref)
 		MARS_ERR("file %p has no inode\n", file);
 		return -EILSEQ;
 	}
-	
+
 	total_size = i_size_read(inode);
 	mref->ref_total_size = total_size;
 	/* Only check reads.
@@ -525,12 +525,12 @@ void aio_sync_all(struct aio_output *output, struct list_head *tmp_list)
 
 	output->fdsync_active = true;
 	atomic_inc(&output->total_fdsync_count);
-	
+
 	latency = TIME_STATS(
 		&timings[2],
 		err = aio_sync(output->mf->mf_filp)
 		);
-	
+
 	threshold_check(&aio_sync_threshold, latency);
 
 	output->fdsync_active = false;
@@ -538,7 +538,7 @@ void aio_sync_all(struct aio_output *output, struct list_head *tmp_list)
 	if (err < 0) {
 		MARS_ERR("FDSYNC error %d\n", err);
 	}
-	
+
 	/* Signal completion for the whole list.
 	 * No locking needed, it's on the stack.
 	 */
@@ -552,7 +552,7 @@ int aio_sync_thread(void *data)
 {
 	struct aio_threadinfo *tinfo = data;
 	struct aio_output *output = tinfo->output;
-	
+
 	MARS_DBG("sync thread has started on '%s'.\n", output->brick->brick_path);
 	//set_user_nice(current, -20);
 
@@ -598,7 +598,7 @@ static int aio_event_thread(void *data)
 	struct aio_output *output = tinfo->output;
 	struct aio_threadinfo *other = &output->tinfo[2];
 	int err = -ENOMEM;
-	
+
 	MARS_DBG("event thread has started.\n");
 
 	use_fake_mm();
@@ -788,7 +788,7 @@ int _create_ioctx(struct aio_output *output)
 		MARS_ERR("io_setup failed, err=%d\n", err);
 		goto done;
 	}
-	
+
 	err = aio_start_thread(output, &output->tinfo[1], aio_event_thread, 'e');
 	if (unlikely(err < 0)) {
 		MARS_ERR("could not start event thread\n");
@@ -994,7 +994,7 @@ char *aio_statistics(struct aio_brick *brick, int verbose)
 		 atomic_read(&output->tinfo[1].total_enqueue_count),
 		 atomic_read(&output->tinfo[2].total_enqueue_count),
 		 sync ? sync : "");
-	
+
 	if (sync)
 		brick_string_free(sync);
 
@@ -1080,7 +1080,7 @@ static int aio_switch(struct aio_brick *brick)
 		MARS_ERR("could not open file = '%s' flags = %d\n", path, flags);
 		status = -ENOENT;
 		goto err;
-	} 
+	}
 
 	output->index = ++index;
 

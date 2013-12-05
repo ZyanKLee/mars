@@ -2,7 +2,7 @@
 #ifndef MARS_SIO_H
 #define MARS_SIO_H
 
-#define WITH_THREAD 16
+#define WITH_THREAD			16
 
 struct sio_mref_aspect {
 	GENERIC_ASPECT(mref);
@@ -36,7 +36,7 @@ struct sio_threadinfo {
 
 struct sio_output {
 	MARS_OUTPUT(sio);
-        // private
+	// private
 	struct file *filp;
 	struct sio_threadinfo tinfo[WITH_THREAD+1];
 	spinlock_t g_lock;

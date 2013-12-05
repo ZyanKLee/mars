@@ -19,23 +19,23 @@
 
 // variants
 #define KEEP_UNIQUE
-#define DELAY_CALLERS // this is _needed_ for production systems
+#define DELAY_CALLERS			// this is _needed_ for production systems
 #define SHORTCUT_1_to_3 // when possible, queue 1 executes phase3_startio() directly without intermediate queueing into queue 3 => may be irritating, but has better performance. NOTICE: when some day the IO scheduling should be different between queue 1 and 3, you MUST disable this in order to distinguish between them!
 
 // commenting this out is dangerous for data integrity! use only for testing!
 #define USE_MEMCPY
-#define DO_WRITEBACK // otherwise FAKE IO
+#define DO_WRITEBACK			// otherwise FAKE IO
 #define APPLY_DATA
 
 // tuning
 #ifdef BRICK_DEBUG_MEM
-#define CONF_TRANS_CHUNKSIZE    (128 * 1024 - PAGE_SIZE * 2)
+#define CONF_TRANS_CHUNKSIZE		(128 * 1024 - PAGE_SIZE * 2)
 #else
-#define CONF_TRANS_CHUNKSIZE    (128 * 1024)
+#define CONF_TRANS_CHUNKSIZE		(128 * 1024)
 #endif
-#define CONF_TRANS_MAX_MREF_SIZE PAGE_SIZE
-//#define CONF_TRANS_ALIGN      PAGE_SIZE // FIXME: does not work
-#define CONF_TRANS_ALIGN      0
+#define CONF_TRANS_MAX_MREF_SIZE	PAGE_SIZE
+//#define CONF_TRANS_ALIGN	PAGE_SIZE // FIXME: does not work
+#define CONF_TRANS_ALIGN		0
 
 #ifdef REPLAY_DEBUGGING
 #define MARS_RPL(_fmt, _args...)  _MARS_MSG(false, "REPLAY ", _fmt, ##_args)
@@ -48,11 +48,11 @@ struct trans_logger_hash_anchor {
 	struct list_head hash_anchor;
 };
 
-#define NR_HASH_PAGES       64
+#define NR_HASH_PAGES			64
 
-#define MAX_HASH_PAGES      (PAGE_SIZE / sizeof(struct trans_logger_hash_anchor*))
-#define HASH_PER_PAGE       (PAGE_SIZE / sizeof(struct trans_logger_hash_anchor))
-#define HASH_TOTAL          (NR_HASH_PAGES * HASH_PER_PAGE)
+#define MAX_HASH_PAGES			(PAGE_SIZE / sizeof(struct trans_logger_hash_anchor*))
+#define HASH_PER_PAGE			(PAGE_SIZE / sizeof(struct trans_logger_hash_anchor))
+#define HASH_TOTAL			(NR_HASH_PAGES * HASH_PER_PAGE)
 
 ///////////////////////// global tuning ////////////////////////
 
@@ -265,7 +265,7 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 	struct list_head *tmp;
 	struct trans_logger_mref_aspect *res = NULL;
 	int len = *max_len;
-	
+
 	/* The lists are always sorted according to age (newest first).
 	 * Caution: there may be duplicates in the list, some of them
 	 * overlapping with the search area in many different ways.
@@ -281,18 +281,18 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 			test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
 		}
 		test = test_a->object;
-		
+
 		_mref_check(test);
 
 		// are the regions overlapping?
 		if (pos >= test->ref_pos + test->ref_len || pos + len <= test->ref_pos) {
 			continue; // not relevant
 		}
-		
+
 		// searching for unstable elements (only in special cases)
 		if (find_unstable && test_a->is_stable)
 			break;
-		
+
 		diff = test->ref_pos - pos;
 		if (diff <= 0) {
 			int restlen = test->ref_len + diff;
@@ -314,7 +314,7 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 static noinline
 struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, loff_t pos, int *max_len, bool find_unstable)
 {
-	
+
 	int hash = hash_fn(pos);
 	struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 	struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
@@ -330,7 +330,7 @@ struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, lof
 	 */
 	if (res && res->object)
 		_mref_get(res->object);
-	
+
 	up_read(&start->hash_mutex);
 
 	return res;
@@ -339,7 +339,7 @@ struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, lof
 static noinline
 void hash_insert(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *elem_a)
 {
-        int hash = hash_fn(elem_a->object->ref_pos);
+	int hash = hash_fn(elem_a->object->ref_pos);
 	struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 	struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
 
@@ -352,7 +352,7 @@ void hash_insert(struct trans_logger_brick *brick, struct trans_logger_mref_aspe
 
 	down_write(&start->hash_mutex);
 
-        list_add(&elem_a->hash_head, &start->hash_anchor);
+	list_add(&elem_a->hash_head, &start->hash_anchor);
 	elem_a->is_hashed = true;
 
 	up_write(&start->hash_mutex);
@@ -366,7 +366,7 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 {
 	loff_t pos = *_pos;
 	int len = *_len;
-        int hash = hash_fn(pos);
+	int hash = hash_fn(pos);
 	struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 	struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
 	struct list_head *tmp;
@@ -387,10 +387,10 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 			struct trans_logger_mref_aspect *test_a;
 			struct mref_object *test;
 			loff_t diff;
-			
+
 			test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
 			test = test_a->object;
-			
+
 			_mref_check(test);
 
 			// are the regions overlapping?
@@ -401,11 +401,11 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 			// collision detection
 			if (test_a->is_collected)
 				goto collision;
-			
+
 			// no writeback of non-persistent data
 			if (!(test_a->is_persistent & test_a->is_completed))
 				goto collision;
-			
+
 			// extend the search region when necessary
 			diff = pos - test->ref_pos;
 			if (diff > 0) {
@@ -413,7 +413,7 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 				pos = test->ref_pos;
 				extended = true;
 			}
-			diff = (test->ref_pos + test->ref_len)  - (pos + len);
+			diff = (test->ref_pos + test->ref_len)	- (pos + len);
 			if (diff > 0) {
 				len += diff;
 				extended = true;
@@ -427,15 +427,15 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 	for (tmp = start->hash_anchor.next; tmp != &start->hash_anchor; tmp = tmp->next) {
 		struct trans_logger_mref_aspect *test_a;
 		struct mref_object *test;
-		
+
 		test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
 		test = test_a->object;
-		
+
 		// are the regions overlapping?
 		if (pos >= test->ref_pos + test->ref_len || pos + len <= test->ref_pos) {
 			continue; // not relevant
 		}
-		
+
 		// collect
 		CHECK_HEAD_EMPTY(&test_a->collect_head);
 		if (unlikely(test_a->is_collected)) {
@@ -479,7 +479,7 @@ void hash_put_all(struct trans_logger_brick *brick, struct list_head *list)
 		} else if (unlikely(hash != first_hash)) {
 			MARS_ERR("oops, different hashes: %d != %d\n", hash, first_hash);
 		}
-		
+
 		if (!elem_a->is_hashed) {
 			continue;
 		}
@@ -489,7 +489,7 @@ void hash_put_all(struct trans_logger_brick *brick, struct list_head *list)
 		atomic_dec(&brick->hash_count);
 	}
 
-err:	
+err:
 	if (start) {
 		up_write(&start->hash_mutex);
 	}
@@ -519,7 +519,7 @@ void _inf_callback(struct trans_logger_input *input, bool force)
 	    input->inf_last_jiffies &&
 	    input->inf_last_jiffies + 4 * HZ > (long long)jiffies)
 		return;
-	
+
 	if (input->inf.inf_callback && input->is_operating) {
 		input->inf_last_jiffies = jiffies;
 
@@ -531,7 +531,7 @@ void _inf_callback(struct trans_logger_input *input, bool force)
 	}
 }
 
-static inline 
+static inline
 int _congested(struct trans_logger_brick *brick)
 {
 	return atomic_read(&brick->q_phase[0].q_queued)
@@ -548,7 +548,7 @@ int _congested(struct trans_logger_brick *brick)
 
 atomic_t   global_mshadow_count =   ATOMIC_INIT(0);
 EXPORT_SYMBOL_GPL(global_mshadow_count);
-atomic64_t global_mshadow_used  = ATOMIC64_INIT(0);
+atomic64_t global_mshadow_used	= ATOMIC64_INIT(0);
 EXPORT_SYMBOL_GPL(global_mshadow_used);
 
 static noinline
@@ -636,7 +636,7 @@ int _read_ref_get(struct trans_logger_output *output, struct trans_logger_mref_a
 	}
 
 	return _make_sshadow(output, mref_a, mshadow_a);
-}	
+}
 
 static noinline
 int _write_ref_get(struct trans_logger_output *output, struct trans_logger_mref_aspect *mref_a)
@@ -898,7 +898,7 @@ void _trans_logger_endio(struct generic_callback *cb)
 	wake_up_interruptible_all(&brick->worker_event);
 	return;
 
-err: 
+err:
 	MARS_FAT("cannot handle callback\n");
 }
 
@@ -1024,12 +1024,12 @@ void free_writeback(struct writeback_info *wb)
 	while ((tmp = wb->w_collect_list.next) != &wb->w_collect_list) {
 		struct trans_logger_mref_aspect *orig_mref_a;
 		struct mref_object *orig_mref;
-		
+
 		list_del_init(tmp);
-		
+
 		orig_mref_a = container_of(tmp, struct trans_logger_mref_aspect, collect_head);
 		orig_mref = orig_mref_a->object;
-		
+
 		_mref_check(orig_mref);
 		if (unlikely(!orig_mref_a->is_collected)) {
 			MARS_ERR("request %lld (len = %d) was not collected\n", orig_mref->ref_pos, orig_mref->ref_len);
@@ -1093,7 +1093,7 @@ done:
 	wake_up_interruptible_all(&brick->worker_event);
 	return;
 
-err: 
+err:
 	MARS_FAT("hanging up....\n");
 }
 
@@ -1188,11 +1188,11 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 				MARS_FAT("cannot get sub_ref, status = %d\n", status);
 				goto err;
 			}
-			
+
 			list_add_tail(&sub_mref_a->sub_head, &wb->w_sub_read_list);
 			atomic_inc(&wb->w_sub_read_count);
 			atomic_inc(&brick->wb_balance_count);
-		
+
 			this_len = sub_mref->ref_len;
 			pos += this_len;
 			len -= this_len;
@@ -1259,11 +1259,11 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 			wb->w_error = status;
 			goto err;
 		}
-		
+
 		list_add_tail(&sub_mref_a->sub_head, &wb->w_sub_write_list);
 		atomic_inc(&wb->w_sub_write_count);
 		atomic_inc(&brick->wb_balance_count);
-		
+
 		this_len = sub_mref->ref_len;
 		pos += this_len;
 		len -= this_len;
@@ -1286,7 +1286,7 @@ void _fire_one(struct list_head *tmp, bool do_update)
 	struct trans_logger_mref_aspect *sub_mref_a;
 	struct mref_object *sub_mref;
 	struct trans_logger_input *sub_input;
-	
+
 	sub_mref_a = container_of(tmp, struct trans_logger_mref_aspect, sub_head);
 	sub_mref = sub_mref_a->object;
 
@@ -1370,7 +1370,7 @@ void update_writeback_info(struct writeback_info * wb)
 
 ////////////////////////////// worker thread //////////////////////////////
 
-/********************************************************************* 
+/*********************************************************************
  * Phase 0: write transaction log entry for the original write request.
  */
 
@@ -1440,7 +1440,7 @@ void _complete(struct trans_logger_brick *brick, struct trans_logger_mref_aspect
 done:
 	return;
 
-err: 
+err:
 	MARS_ERR("giving up...\n");
 }
 
@@ -1462,7 +1462,7 @@ void phase0_preio(void *private)
 	_complete(brick, orig_mref_a, 0, true);
 	_mref_check(orig_mref_a->object);
 	return;
-err: 
+err:
 	MARS_ERR("giving up...\n");
 }
 
@@ -1505,7 +1505,7 @@ void phase0_endio(void *private, int error)
 
 	wake_up_interruptible_all(&brick->worker_event);
 	return;
-err: 
+err:
 	MARS_ERR("giving up...\n");
 }
 
@@ -1620,7 +1620,7 @@ bool prep_phase_startio(struct trans_logger_mref_aspect *mref_a)
 		__trans_logger_ref_put(brick, mref_a);
 
 		return true;
-	} 
+	}
 	// else WRITE
 	CHECK_HEAD_EMPTY(&mref_a->lh.lh_head);
 	CHECK_HEAD_EMPTY(&mref_a->hash_head);
@@ -1665,7 +1665,7 @@ err:
 	return false;
 }
 
-/********************************************************************* 
+/*********************************************************************
  * Phase 1: read original version of data.
  * This happens _after_ phase 0, deliberately.
  * We are explicitly dealing with old and new versions.
@@ -1688,7 +1688,7 @@ void phase1_endio(struct generic_callback *cb)
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
-	
+
 	if (unlikely(cb->cb_error < 0)) {
 		MARS_FAT("IO error %d\n", cb->cb_error);
 		goto err;
@@ -1703,7 +1703,7 @@ void phase1_endio(struct generic_callback *cb)
 	wake_up_interruptible_all(&brick->worker_event);
 	return;
 
-err: 
+err:
 	MARS_FAT("hanging up....\n");
 }
 
@@ -1760,7 +1760,7 @@ bool phase1_startio(struct trans_logger_mref_aspect *orig_mref_a)
 
  done:
 	return true;
-	
+
  err:
 	if (wb) {
 		free_writeback(wb);
@@ -1770,7 +1770,7 @@ bool phase1_startio(struct trans_logger_mref_aspect *orig_mref_a)
 }
 
 
-/********************************************************************* 
+/*********************************************************************
  * Phase 2: log the old disk version.
  */
 
@@ -1778,7 +1778,7 @@ static inline
 void _phase2_endio(struct writeback_info *wb)
 {
 	struct trans_logger_brick *brick = wb->w_brick;
-	
+
 	// queue up for the next phase
 	qq_wb_insert(&brick->q_phase[3], wb);
 	wake_up_interruptible_all(&brick->worker_event);
@@ -1905,7 +1905,7 @@ err:
 	return false;
 }
 
-/********************************************************************* 
+/*********************************************************************
  * Phase 3: overwrite old disk version with new version.
  */
 
@@ -1923,7 +1923,7 @@ void phase3_endio(struct generic_callback *cb)
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
-	
+
 	if (unlikely(cb->cb_error < 0)) {
 		MARS_FAT("IO error %d\n", cb->cb_error);
 		goto err;
@@ -1942,7 +1942,7 @@ void phase3_endio(struct generic_callback *cb)
 
 	return;
 
-err: 
+err:
 	MARS_FAT("hanging up....\n");
 }
 
@@ -1978,7 +1978,7 @@ bool phase3_startio(struct writeback_info *wb)
 	return true;
 }
 
-/********************************************************************* 
+/*********************************************************************
  * The logger thread.
  * There is only a single instance, dealing with all requests in parallel.
  */
@@ -2283,7 +2283,7 @@ void _init_input(struct trans_logger_input *input, loff_t start_pos)
 	logst->chunk_size = CONF_TRANS_CHUNKSIZE;
 	logst->max_size = CONF_TRANS_MAX_MREF_SIZE;
 
-	
+
 	input->inf.inf_min_pos = start_pos;
 	input->inf.inf_max_pos = start_pos; // ATTENTION: this remains correct as far as our replay code _never_ kicks off any requests in parallel (which is current state of the "art", relying on BBU caching for performance). WHENEVER YOU CHANGE THIS some day, you MUST maintain the correct end_pos here!
 	get_lamport(&input->inf.inf_max_pos_stamp);
@@ -2305,7 +2305,7 @@ void _init_inputs(struct trans_logger_brick *brick, bool is_first)
 	int old_nr = brick->old_input_nr;
 	int log_nr = brick->log_input_nr;
 	int new_nr = brick->new_input_nr;
-	
+
 	if (!is_first &&
 	    (new_nr == log_nr ||
 	     log_nr != old_nr)) {
@@ -2655,19 +2655,19 @@ int apply_data(struct trans_logger_brick *brick, loff_t pos, void *buf, int len)
 	while (len > 0) {
 		struct mref_object *mref;
 		struct trans_logger_mref_aspect *mref_a;
-		
+
 		status = -ENOMEM;
 		mref = trans_logger_alloc_mref(brick);
 		mref_a = trans_logger_mref_get_aspect(brick, mref);
 		CHECK_PTR(mref_a, done);
 		CHECK_ASPECT(mref_a, mref, done);
-		
+
 		mref->ref_pos = pos;
 		mref->ref_data = NULL;
 		mref->ref_len = len;
 		mref->ref_may_write = WRITE;
 		mref->ref_rw = WRITE;
-		
+
 		status = GENERIC_INPUT_CALL(input, mref_get, mref);
 		if (unlikely(status < 0)) {
 			MARS_ERR("cannot get mref, status = %d\n", status);
@@ -2683,7 +2683,7 @@ int apply_data(struct trans_logger_brick *brick, loff_t pos, void *buf, int len)
 			MARS_ERR("bad ref len = %d (requested = %d)\n", mref->ref_len, len);
 			goto done;
 		}
-		
+
 		wait_replay(brick, mref_a);
 
 		memcpy(mref->ref_data, buf, mref->ref_len);
@@ -2736,7 +2736,7 @@ void trans_logger_replay(struct trans_logger_brick *brick)
 	input->inf.inf_is_logging = false;
 
 	MARS_INF("starting replay from %lld to %lld\n", start_pos, brick->replay_end_pos);
-	
+
 	mars_power_led_on((void*)brick, true);
 
 	for (;;) {
@@ -2753,8 +2753,8 @@ void trans_logger_replay(struct trans_logger_brick *brick)
 		status = log_read(&input->logst, false, &lh, &buf, &len);
 
 		new_finished_pos = input->logst.log_pos + input->logst.offset;
-		MARS_RPL("read  %lld %lld\n", finished_pos, new_finished_pos);
-		
+		MARS_RPL("read	%lld %lld\n", finished_pos, new_finished_pos);
+
 		if (status == -EAGAIN) {
 			loff_t remaining = brick->replay_end_pos - new_finished_pos;
 			MARS_DBG("got -EAGAIN, remaining = %lld\n", remaining);
@@ -2993,9 +2993,9 @@ char *trans_logger_statistics(struct trans_logger_brick *brick, int verbose)
 		 brick->log_input_nr,
 		 brick->old_input_nr,
 		 brick->inputs[TL_INPUT_LOG1]->inf.inf_min_pos,
-		 brick->inputs[TL_INPUT_LOG1]->inf.inf_max_pos, 
+		 brick->inputs[TL_INPUT_LOG1]->inf.inf_max_pos,
 		 brick->inputs[TL_INPUT_LOG2]->inf.inf_min_pos,
-		 brick->inputs[TL_INPUT_LOG2]->inf.inf_max_pos, 
+		 brick->inputs[TL_INPUT_LOG2]->inf.inf_max_pos,
 		 atomic_read(&brick->total_hash_insert_count),
 		 atomic_read(&brick->total_hash_find_count),
 		 atomic_read(&brick->total_hash_extend_count),
@@ -3186,16 +3186,16 @@ int trans_logger_brick_construct(struct trans_logger_brick *brick)
 	qq_init(&brick->q_phase[3], brick);
 	brick->q_phase[0].q_insert_info   = "q0_ins";
 	brick->q_phase[0].q_pushback_info = "q0_push";
-	brick->q_phase[0].q_fetch_info    = "q0_fetch";
+	brick->q_phase[0].q_fetch_info	  = "q0_fetch";
 	brick->q_phase[1].q_insert_info   = "q1_ins";
 	brick->q_phase[1].q_pushback_info = "q1_push";
-	brick->q_phase[1].q_fetch_info    = "q1_fetch";
+	brick->q_phase[1].q_fetch_info	  = "q1_fetch";
 	brick->q_phase[2].q_insert_info   = "q2_ins";
 	brick->q_phase[2].q_pushback_info = "q2_push";
-	brick->q_phase[2].q_fetch_info    = "q2_fetch";
+	brick->q_phase[2].q_fetch_info	  = "q2_fetch";
 	brick->q_phase[3].q_insert_info   = "q3_ins";
 	brick->q_phase[3].q_pushback_info = "q3_push";
-	brick->q_phase[3].q_fetch_info    = "q3_fetch";
+	brick->q_phase[3].q_fetch_info	  = "q3_fetch";
 	brick->new_input_nr = TL_INPUT_LOG1;
 	brick->log_input_nr = TL_INPUT_LOG1;
 	brick->old_input_nr = TL_INPUT_LOG1;

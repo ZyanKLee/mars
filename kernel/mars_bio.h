@@ -2,9 +2,9 @@
 #ifndef MARS_BIO_H
 #define MARS_BIO_H
 
-#define BIO_SUBMIT_MAX_LATENCY    250 // 250 us
-#define BIO_IO_R_MAX_LATENCY    40000 //  40 ms
-#define BIO_IO_W_MAX_LATENCY   100000 // 100 ms
+#define BIO_SUBMIT_MAX_LATENCY		250 // 250 us
+#define BIO_IO_R_MAX_LATENCY		40000 //  40 ms
+#define BIO_IO_W_MAX_LATENCY		100000 // 100 ms
 
 extern struct threshold bio_submit_threshold;
 extern struct threshold bio_io_threshold[2];

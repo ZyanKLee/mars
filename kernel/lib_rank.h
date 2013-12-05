@@ -7,7 +7,7 @@
 /* Generic round-robin scheduler based on ranking information.
  */
 
-#define RKI_DUMMY INT_MIN
+#define RKI_DUMMY			INT_MIN
 
 struct rank_info {
 	int rki_x;
@@ -28,12 +28,12 @@ struct rank_data {
  *
  *     ranking_start(...);
  *     for (...) {
- *             ranking_compute(&rkd[this_time], ...);
- *             // usually you need at least 1 call for each rkd[] element,
- *             // but you can call more often to include ranking information
- *             // from many different sources.
- *             // Note: instead / additionally, you may also use
- *             // ranking_add() or ranking_override().
+ *	       ranking_compute(&rkd[this_time], ...);
+ *	       // usually you need at least 1 call for each rkd[] element,
+ *	       // but you can call more often to include ranking information
+ *	       // from many different sources.
+ *	       // Note: instead / additionally, you may also use
+ *	       // ranking_add() or ranking_override().
  *     }
  *     ranking_stop(...);
  *
@@ -94,12 +94,12 @@ void ranking_stop(struct rank_data rkd[], int rkd_count)
  * usage pattern):
  *
  *    while (__there_is_work_to_be_done(...)) {
- *            int winner = ranking_select(...);
- *            if (winner >= 0) {
- *                    __do_something(winner);
- *                    ranking_select_done(..., winner, 1); // or higher, winpoints >= 1 must hold
- *            }
- *            ...
+ *	      int winner = ranking_select(...);
+ *	      if (winner >= 0) {
+ *		      __do_something(winner);
+ *		      ranking_select_done(..., winner, 1); // or higher, winpoints >= 1 must hold
+ *	      }
+ *	      ...
  *    }
  *
  */

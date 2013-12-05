@@ -4,10 +4,10 @@
 
 #include <linux/semaphore.h>
 
-#define HT_SHIFT 6 //????
-#define MARS_MAX_SEGMENT_SIZE (1U << (9+HT_SHIFT))
+#define HT_SHIFT			6 //????
+#define MARS_MAX_SEGMENT_SIZE		(1U << (9+HT_SHIFT))
 
-#define MAX_BIO 32
+#define MAX_BIO 			32
 
 ///////////////////////// global tuning ////////////////////////
 

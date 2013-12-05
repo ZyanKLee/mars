@@ -27,7 +27,7 @@
 
 #include "mars_buf.h"
 
-#define PRE_ALLOC 8
+#define PRE_ALLOC			8
 
 ///////////////////////// own helper functions ////////////////////////
 
@@ -45,10 +45,10 @@ int buf_hash_fn(loff_t base_index)
 static
 struct buf_head *_hash_find_insert(struct buf_brick *brick, loff_t base_index, struct buf_head *new)
 {
-	
+
 	int hash = buf_hash_fn(base_index);
 	spinlock_t *lock = &brick->cache_anchors[hash].hash_lock;
-	struct list_head *start	= &brick->cache_anchors[hash].hash_anchor;
+	struct list_head *start = &brick->cache_anchors[hash].hash_anchor;
 	struct list_head *tmp;
 	int count = 0;
 
@@ -409,7 +409,7 @@ static int buf_ref_get(struct buf_output *output, struct mref_object *mref)
 	mref_a = buf_mref_get_aspect(brick, mref);
 	if (unlikely(!mref_a))
 		goto done;
-	
+
 	base_pos = mref->ref_pos & ~(loff_t)(brick->backing_size - 1);
 	base_offset = (mref->ref_pos - base_pos);
 	if (unlikely(base_offset < 0 || base_offset >= brick->backing_size)) {
@@ -616,9 +616,9 @@ static int _buf_make_io(struct buf_brick *brick, struct buf_head *bf, void *star
 		/* Remember number of fired-off mrefs
 		 */
 		atomic_inc(&bf->bf_io_count);
-		
+
 		len = mref->ref_len;
-		
+
 #ifndef FAKE_IO
 		GENERIC_INPUT_CALL(input, mref_io, mref);
 #else
