@@ -595,9 +595,9 @@ bool _check_switch(struct mars_global *global, const char *path)
 	struct mars_dent *allow_dent;
 
 	allow_dent = mars_find_dent(global, path);
-	if (!allow_dent || !allow_dent->new_link)
+	if (!allow_dent || !allow_dent->link_val)
 		goto done;
-	sscanf(allow_dent->new_link, "%d", &res);
+	sscanf(allow_dent->link_val, "%d", &res);
 	MARS_DBG("'%s' -> %d\n", path, res);
 
 done:
@@ -1335,7 +1335,7 @@ done:
 static
 int check_logfile(const char *peer, struct mars_dent *remote_dent, struct mars_dent *local_dent, struct mars_dent *parent, loff_t dst_size)
 {
-	loff_t src_size = remote_dent->new_stat.size;
+	loff_t src_size = remote_dent->stat_val.size;
 	struct mars_rotate *rot;
 	const char *switch_path = NULL;
 	struct copy_brick *copy_brick;
@@ -1425,42 +1425,42 @@ int run_bone(struct mars_peerinfo *peer, struct mars_dent *remote_dent)
 	stat_ok = (status >= 0);
 
 	if (stat_ok) {
-		update_mtime = timespec_compare(&remote_dent->new_stat.mtime, &local_stat.mtime) > 0;
-		update_ctime = timespec_compare(&remote_dent->new_stat.ctime, &local_stat.ctime) > 0;
+		update_mtime = timespec_compare(&remote_dent->stat_val.mtime, &local_stat.mtime) > 0;
+		update_ctime = timespec_compare(&remote_dent->stat_val.ctime, &local_stat.ctime) > 0;
 
-		if ((remote_dent->new_stat.mode & S_IRWXU) !=
+		if ((remote_dent->stat_val.mode & S_IRWXU) !=
 		   (local_stat.mode & S_IRWXU) &&
 		   update_ctime) {
 			mode_t newmode = local_stat.mode;
 			newmode &= ~S_IRWXU;
-			newmode |= (remote_dent->new_stat.mode & S_IRWXU);
+			newmode |= (remote_dent->stat_val.mode & S_IRWXU);
 			mars_chmod(remote_dent->d_path, newmode);
 			run_trigger = true;
 		}
 
-		if (remote_dent->new_stat.uid != local_stat.uid && update_ctime) {
-			mars_lchown(remote_dent->d_path, remote_dent->new_stat.uid);
+		if (remote_dent->stat_val.uid != local_stat.uid && update_ctime) {
+			mars_lchown(remote_dent->d_path, remote_dent->stat_val.uid);
 			run_trigger = true;
 		}
 	}
 
-	if (S_ISDIR(remote_dent->new_stat.mode)) {
+	if (S_ISDIR(remote_dent->stat_val.mode)) {
 		if (!_is_usable_dir(remote_dent->d_name)) {
 			goto done;
 		}
 		if (!stat_ok) {
 			status = mars_mkdir(remote_dent->d_path);
 			if (status >= 0) {
-				mars_chmod(remote_dent->d_path, remote_dent->new_stat.mode);
-				mars_lchown(remote_dent->d_path, remote_dent->new_stat.uid);
+				mars_chmod(remote_dent->d_path, remote_dent->stat_val.mode);
+				mars_lchown(remote_dent->d_path, remote_dent->stat_val.uid);
 			}
 		}
-	} else if (S_ISLNK(remote_dent->new_stat.mode) && remote_dent->new_link) {
+	} else if (S_ISLNK(remote_dent->stat_val.mode) && remote_dent->link_val) {
 		if (!stat_ok || update_mtime) {
-			status = mars_symlink(remote_dent->new_link, remote_dent->d_path, &remote_dent->new_stat.mtime, remote_dent->new_stat.uid);
+			status = mars_symlink(remote_dent->link_val, remote_dent->d_path, &remote_dent->stat_val.mtime, remote_dent->stat_val.uid);
 			run_trigger = true;
 		}
-	} else if (S_ISREG(remote_dent->new_stat.mode) && _is_peer_logfile(remote_dent->d_name, my_id())) {
+	} else if (S_ISREG(remote_dent->stat_val.mode) && _is_peer_logfile(remote_dent->d_name, my_id())) {
 		const char *parent_path = backskip_replace(remote_dent->d_path, '/', false, "");
 		if (likely(parent_path)) {
 			struct mars_dent *parent = mars_find_dent(peer->global, parent_path);
@@ -1792,13 +1792,13 @@ static int _make_peer(struct mars_global *global, struct mars_dent *dent, char *
 	char *parent_path;
 	int status = 0;
 
-	if (!global || !global->global_power.button || !dent || !dent->new_link || !dent->d_parent || !(parent_path = dent->d_parent->d_path)) {
+	if (!global || !global->global_power.button || !dent || !dent->link_val || !dent->d_parent || !(parent_path = dent->d_parent->d_path)) {
 		MARS_DBG("cannot work\n");
 		return 0;
 	}
 	mypeer = dent->d_rest;
 	if (!mypeer) {
-		status = _parse_args(dent, dent->new_link, 1);
+		status = _parse_args(dent, dent->link_val, 1);
 		if (status < 0)
 			goto done;
 		mypeer = dent->d_argv[0];
@@ -2158,8 +2158,8 @@ int make_log_init(void *buf, struct mars_dent *dent)
 	rot->max_sequence = 0;
 	rot->has_error = false;
 
-	if (dent->new_link)
-		sscanf(dent->new_link, "%lld", &rot->dev_size);
+	if (dent->link_val)
+		sscanf(dent->link_val, "%lld", &rot->dev_size);
 	if (!rot->parent_path)
 		rot->parent_path = brick_strdup(parent_path);
 
@@ -2186,14 +2186,14 @@ int make_log_init(void *buf, struct mars_dent *dent)
 	}
 
 	replay_link = (void*)mars_find_dent(global, replay_path);
-	if (unlikely(!replay_link || !replay_link->new_link)) {
+	if (unlikely(!replay_link || !replay_link->link_val)) {
 		MARS_DBG("replay status symlink '%s' does not exist (%p)\n", replay_path, replay_link);
 		rot->allow_update = false;
 		status = -ENOENT;
 		goto done;
 	}
 
-	status = _parse_args(replay_link, replay_link->new_link, 3);
+	status = _parse_args(replay_link, replay_link->link_val, 3);
 	if (unlikely(status < 0)) {
 		goto done;
 	}
@@ -2542,10 +2542,10 @@ int _make_logging_status(struct mars_rotate *rot)
 			if (rot->next_relevant_log) {
 				int replay_tolerance = _get_tolerance(rot);
 				bool skip_new = !rot->next_next_relevant_log && rot->todo_primary;
-				MARS_DBG("check switchover from '%s' to '%s' (size = %lld, next_next = %p, skip_new = %d, replay_tolerance = %d)\n", dent->d_path, rot->next_relevant_log->d_path, rot->next_relevant_log->new_stat.size, rot->next_next_relevant_log, skip_new, replay_tolerance);
+				MARS_DBG("check switchover from '%s' to '%s' (size = %lld, next_next = %p, skip_new = %d, replay_tolerance = %d)\n", dent->d_path, rot->next_relevant_log->d_path, rot->next_relevant_log->stat_val.size, rot->next_next_relevant_log, skip_new, replay_tolerance);
 				if (is_switchover_possible(rot, dent->d_path, rot->next_relevant_log->d_path, replay_tolerance, skip_new)) {
 					MARS_INF_TO(rot->log_say, "start switchover from transaction log '%s' to '%s'\n", dent->d_path, rot->next_relevant_log->d_path);
-					_make_new_replaylink(rot, rot->next_relevant_log->d_rest, rot->next_relevant_log->d_serial, rot->next_relevant_log->new_stat.size);
+					_make_new_replaylink(rot, rot->next_relevant_log->d_rest, rot->next_relevant_log->d_serial, rot->next_relevant_log->stat_val.size);
 				}
 			} else if (rot->todo_primary) {
 				if (dent->d_serial > log_nr)
@@ -3081,7 +3081,7 @@ int make_primary(void *buf, struct mars_dent *dent)
 	CHECK_PTR(rot, done);
 
 	rot->todo_primary =
-		global->global_power.button && dent->new_link && !strcmp(dent->new_link, my_id());
+		global->global_power.button && dent->link_val && !strcmp(dent->link_val, my_id());
 	MARS_DBG("todo_primary = %d is_primary = %d\n", rot->todo_primary, rot->is_primary);
 	status = 0;
 
@@ -3159,7 +3159,7 @@ static int make_replay(void *buf, struct mars_dent *dent)
 	struct mars_dent *parent = dent->d_parent;
 	int status = 0;
 
-	if (!global->global_power.button || !parent || !dent->new_link) {
+	if (!global->global_power.button || !parent || !dent->link_val) {
 		MARS_DBG("nothing to do\n");
 		goto done;
 	}
@@ -3187,7 +3187,7 @@ int make_dev(void *buf, struct mars_dent *dent)
 	int open_count = 0;
 	int status = 0;
 
-	if (!parent || !dent->new_link) {
+	if (!parent || !dent->link_val) {
 		MARS_ERR("nothing to do\n");
 		return -EINVAL;
 	}
@@ -3210,7 +3210,7 @@ int make_dev(void *buf, struct mars_dent *dent)
 		goto done;
 	}
 
-	status = _parse_args(dent, dent->new_link, 1);
+	status = _parse_args(dent, dent->link_val, 1);
 	if (status < 0) {
 		MARS_DBG("fail\n");
 		goto done;
@@ -3351,7 +3351,7 @@ static int make_sync(void *buf, struct mars_dent *dent)
 	bool do_start;
 	int status;
 
-	if (!global->global_power.button || !dent->d_parent || !dent->new_link) {
+	if (!global->global_power.button || !dent->d_parent || !dent->link_val) {
 		return 0;
 	}
 
@@ -3359,9 +3359,9 @@ static int make_sync(void *buf, struct mars_dent *dent)
 
 	/* Analyze replay position
 	 */
-	status = sscanf(dent->new_link, "%lld", &start_pos);
+	status = sscanf(dent->link_val, "%lld", &start_pos);
 	if (status != 1) {
-		MARS_ERR("bad syncstatus symlink syntax '%s' (%s)\n", dent->new_link, dent->d_path);
+		MARS_ERR("bad syncstatus symlink syntax '%s' (%s)\n", dent->link_val, dent->d_path);
 		status = -EINVAL;
 		goto done;
 	}
@@ -3380,14 +3380,14 @@ static int make_sync(void *buf, struct mars_dent *dent)
 	if (unlikely(!tmp))
 		goto done;
 	size_dent = (void*)mars_find_dent(global, tmp);
-	if (!size_dent || !size_dent->new_link) {
+	if (!size_dent || !size_dent->link_val) {
 		MARS_ERR("cannot determine size '%s'\n", tmp);
 		status = -ENOENT;
 		goto done;
 	}
-	status = sscanf(size_dent->new_link, "%lld", &end_pos);
+	status = sscanf(size_dent->link_val, "%lld", &end_pos);
 	if (status != 1) {
-		MARS_ERR("bad size symlink syntax '%s' (%s)\n", size_dent->new_link, tmp);
+		MARS_ERR("bad size symlink syntax '%s' (%s)\n", size_dent->link_val, tmp);
 		status = -EINVAL;
 		goto done;
 	}
@@ -3404,12 +3404,12 @@ static int make_sync(void *buf, struct mars_dent *dent)
 	if (unlikely(!tmp))
 		goto done;
 	connect_dent = (void*)mars_find_dent(global, tmp);
-	if (!connect_dent || !connect_dent->new_link) {
+	if (!connect_dent || !connect_dent->link_val) {
 		MARS_WRN("cannot determine peer, symlink '%s' is missing => assuming that I am STANDALONE\n", tmp);
 		status = 0;
 		goto done;
 	}
-	peer = connect_dent->new_link;
+	peer = connect_dent->link_val;
 
 	/* Disallow contemporary sync & logfile_apply
 	 */
@@ -3499,41 +3499,41 @@ static int prepare_delete(void *buf, struct mars_dent *dent)
 	int max_serial = 0;
 	int status;
 
-	if (!global || !dent || !dent->new_link || !dent->d_path) {
+	if (!global || !dent || !dent->link_val || !dent->d_path) {
 		goto done;
 	}
 
 	// create a marker which prevents concurrent updates from remote hosts
-	marker_path = backskip_replace(dent->new_link, '/', true, "/.deleted-");
+	marker_path = backskip_replace(dent->link_val, '/', true, "/.deleted-");
 	if (unlikely(!marker_path))
 		goto done;
 	if (mars_stat(marker_path, &stat, true) < 0) {
 		mars_symlink("1", marker_path, NULL, 0);
 	}
 
-	brick = mars_find_brick(global, NULL, dent->new_link);
+	brick = mars_find_brick(global, NULL, dent->link_val);
 	if (brick && unlikely(brick->nr_outputs > 0 && brick->outputs[0] && brick->outputs[0]->nr_connected)) {
-		MARS_WRN("target '%s' cannot be deleted, its brick '%s' in use\n", dent->new_link, SAFE_STR(brick->brick_name));
+		MARS_WRN("target '%s' cannot be deleted, its brick '%s' in use\n", dent->link_val, SAFE_STR(brick->brick_name));
 		goto done;
 	}
 
 	status = -EAGAIN;
-	target = _mars_find_dent(global, dent->new_link);
+	target = _mars_find_dent(global, dent->link_val);
 	if (target) {
-		status = mars_unlink(dent->new_link);
+		status = mars_unlink(dent->link_val);
 		target->d_killme = true;
-		MARS_DBG("target '%s' deleted (status = %d) and marked for removal\n", dent->new_link, status);
-	} else if (mars_stat(dent->new_link, &stat, true) >= 0) {
+		MARS_DBG("target '%s' deleted (status = %d) and marked for removal\n", dent->link_val, status);
+	} else if (mars_stat(dent->link_val, &stat, true) >= 0) {
 		if (S_ISDIR(stat.mode)) {
-			status = mars_rmdir(dent->new_link);
-			MARS_DBG("rmdir '%s', status = %d\n", dent->new_link, status);
+			status = mars_rmdir(dent->link_val);
+			MARS_DBG("rmdir '%s', status = %d\n", dent->link_val, status);
 		} else {
-			status = mars_unlink(dent->new_link);
-			MARS_DBG("unlink '%s', status = %d\n", dent->new_link, status);
+			status = mars_unlink(dent->link_val);
+			MARS_DBG("unlink '%s', status = %d\n", dent->link_val, status);
 		}
 	}
 	if (status < 0) {
-		MARS_DBG("target '%s' does no longer exist\n", dent->new_link);
+		MARS_DBG("target '%s' does no longer exist\n", dent->link_val);
 		if (dent->d_serial <= global->deleted_border) {
 			mars_unlink(marker_path);
 			MARS_DBG("removing deletion symlink '%s'\n", dent->d_path);
@@ -3544,12 +3544,12 @@ static int prepare_delete(void *buf, struct mars_dent *dent)
 
 	response_path = path_make("/mars/todo-global/deleted-%s", my_id());
 	if (!response_path) {
-		MARS_ERR("cannot build response path for '%s'\n", dent->new_link);
+		MARS_ERR("cannot build response path for '%s'\n", dent->link_val);
 		goto done;
 	}
 	response = _mars_find_dent(global, response_path);
-	if (response && response->new_link) {
-		sscanf(response->new_link, "%d", &max_serial);
+	if (response && response->link_val) {
+		sscanf(response->link_val, "%d", &max_serial);
 	}
 	if (dent->d_serial > max_serial) {
 		char response_val[16];
@@ -3570,13 +3570,13 @@ static int check_deleted(void *buf, struct mars_dent *dent)
 	int serial = 0;
 	int status;
 
-	if (!global || !dent || !dent->new_link) {
+	if (!global || !dent || !dent->link_val) {
 		goto done;
 	}
 
-	status = sscanf(dent->new_link, "%d", &serial);
+	status = sscanf(dent->link_val, "%d", &serial);
 	if (status != 1 || serial <= 0) {
-		MARS_WRN("cannot parse symlink '%s' -> '%s'\n", dent->d_path, dent->new_link);
+		MARS_WRN("cannot parse symlink '%s' -> '%s'\n", dent->d_path, dent->link_val);
 		goto done;
 	}
 
@@ -4102,25 +4102,25 @@ static int light_worker(struct mars_global *global, struct mars_dent *dent, bool
 	}
 	switch (light_classes[class].cl_type) {
 	case 'd':
-		if (!S_ISDIR(dent->new_stat.mode)) {
+		if (!S_ISDIR(dent->stat_val.mode)) {
 			MARS_ERR_ONCE(dent, "'%s' should be a directory, but is something else\n", dent->d_path);
 			return -EINVAL;
 		}
 		break;
 	case 'f':
-		if (!S_ISREG(dent->new_stat.mode)) {
+		if (!S_ISREG(dent->stat_val.mode)) {
 			MARS_ERR_ONCE(dent, "'%s' should be a regular file, but is something else\n", dent->d_path);
 			return -EINVAL;
 		}
 		break;
 	case 'F':
-		if (!S_ISREG(dent->new_stat.mode) && !S_ISLNK(dent->new_stat.mode)) {
+		if (!S_ISREG(dent->stat_val.mode) && !S_ISLNK(dent->stat_val.mode)) {
 			MARS_ERR_ONCE(dent, "'%s' should be a regular file or a symlink, but is something else\n", dent->d_path);
 			return -EINVAL;
 		}
 		break;
 	case 'l':
-		if (!S_ISLNK(dent->new_stat.mode)) {
+		if (!S_ISLNK(dent->stat_val.mode)) {
 			MARS_ERR_ONCE(dent, "'%s' should be a symlink, but is something else\n", dent->d_path);
 			return -EINVAL;
 		}

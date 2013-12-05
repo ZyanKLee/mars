@@ -35,10 +35,10 @@ char *_mars_translate_hostname(const char *name)
 	}
 
 	test = mars_find_dent(global, tmp);
-	if (test && test->new_link) {
-		MARS_DBG("'%s' => '%s'\n", tmp, test->new_link);
+	if (test && test->link_val) {
+		MARS_DBG("'%s' => '%s'\n", tmp, test->link_val);
 		brick_string_free(res);
-		res = brick_strdup(test->new_link);
+		res = brick_strdup(test->link_val);
 	} else {
 		MARS_DBG("no translation for '%s'\n", tmp);
 	}

@@ -48,8 +48,8 @@ const struct meta mars_dent_meta[] = {
 	META_INI(d_type,    struct mars_dent, FIELD_UINT),
 	META_INI(d_class,   struct mars_dent, FIELD_INT),
 	META_INI(d_serial,  struct mars_dent, FIELD_INT),
-	META_INI_SUB(new_stat,struct mars_dent, mars_kstat_meta),
-	META_INI(new_link,    struct mars_dent, FIELD_STRING),
+	META_INI_SUB(stat_val,struct mars_dent, mars_kstat_meta),
+	META_INI(link_val,    struct mars_dent, FIELD_STRING),
 	META_INI(d_args,    struct mars_dent, FIELD_STRING),
 	META_INI(d_argv[0], struct mars_dent, FIELD_STRING),
 	META_INI(d_argv[1], struct mars_dent, FIELD_STRING),
@@ -524,11 +524,11 @@ int get_inode(char *newpath, struct mars_dent *dent)
 		goto done;
 	}
 
-	memcpy(&dent->new_stat, &tmp, sizeof(dent->new_stat));
+	memcpy(&dent->stat_val, &tmp, sizeof(dent->stat_val));
 
-	if (S_ISLNK(dent->new_stat.mode)) {
+	if (S_ISLNK(dent->stat_val.mode)) {
 		struct path path = {};
-		int len = dent->new_stat.size;
+		int len = dent->stat_val.size;
 		struct inode *inode;
 		char *link;
 
@@ -552,11 +552,11 @@ int get_inode(char *newpath, struct mars_dent *dent)
 			status = inode->i_op->readlink(path.dentry, link, len + 1);
 			link[len] = '\0';
 			if (status < 0 ||
-			   (dent->new_link && !strncmp(dent->new_link, link, len))) {
+			   (dent->link_val && !strncmp(dent->link_val, link, len))) {
 				brick_string_free(link);
 			} else {
-				brick_string_free(dent->new_link);
-				dent->new_link = link;
+				brick_string_free(dent->link_val);
+				dent->link_val = link;
 			}
 		}
 		path_put(&path);
@@ -738,7 +738,7 @@ restart:
 		total_status |= status;
 
 		// recurse into subdirectories by inserting into the flat list
-		if (S_ISDIR(dent->new_stat.mode) && dent->d_depth <= maxdepth) {
+		if (S_ISDIR(dent->stat_val.mode) && dent->d_depth <= maxdepth) {
 			struct mars_cookie sub_cookie = {
 				.global = global,
 				.checker = checker,
@@ -933,7 +933,7 @@ void mars_free_dent(struct mars_dent *dent)
 	brick_string_free(dent->d_name);
 	brick_string_free(dent->d_rest);
 	brick_string_free(dent->d_path);
-	brick_string_free(dent->new_link);
+	brick_string_free(dent->link_val);
 	if (dent->d_private_destruct) {
 		dent->d_private_destruct(dent->d_private);
 	}
@@ -1716,7 +1716,7 @@ void show_statistics(struct mars_global *global, const char *class)
 		struct mars_dent *dent;
 		struct list_head *sub;
 		dent = container_of(tmp, struct mars_dent, dent_link);
-		MARS_DBG("dent %d '%s' '%s' stamp=%ld.%09ld\n", dent->d_class, SAFE_STR(dent->d_path), SAFE_STR(dent->new_link), dent->new_stat.mtime.tv_sec, dent->new_stat.mtime.tv_nsec);
+		MARS_DBG("dent %d '%s' '%s' stamp=%ld.%09ld\n", dent->d_class, SAFE_STR(dent->d_path), SAFE_STR(dent->link_val), dent->stat_val.mtime.tv_sec, dent->stat_val.mtime.tv_nsec);
 		dent_count++;
 		for (sub = dent->brick_list.next; sub != &dent->brick_list; sub = sub->next) {
 			struct mars_brick *test;

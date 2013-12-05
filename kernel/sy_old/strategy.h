@@ -43,15 +43,15 @@ extern char *my_id(void);
 	int   d_namelen;						\
 	int   d_pathlen;						\
 	int   d_depth;							\
-	unsigned int d_type; /* from readdir() => often DT_UNKNOWN => don't rely on it, use new_stat.mode instead */\
+	unsigned int d_type; /* from readdir() => often DT_UNKNOWN => don't rely on it, use stat_val.mode instead */\
 	int   d_class;	  /* for pre-grouping order */			\
 	int   d_serial;   /* for pre-grouping order */			\
 	int   d_version;  /* dynamic programming per call of mars_ent_work() */\
 	char d_once_error;						\
 	bool d_killme;							\
 	bool d_use_channel;						\
-	struct kstat new_stat;						\
-	char *new_link; 						\
+	struct kstat stat_val;						\
+	char *link_val; 						\
 	struct mars_global *d_global;					\
 	void (*d_private_destruct)(void *private);			\
 	void *d_private;
