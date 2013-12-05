@@ -45,8 +45,8 @@ int cb_thread(void *data)
 	wake_up_interruptible(&brick->startup_event);
 
 	while (!brick_thread_should_stop() || !list_empty(&brick->cb_read_list) || !list_empty(&brick->cb_write_list) || atomic_read(&brick->in_flight) > 0) {
-		struct server_mref_aspect *mref_a;
-		struct mref_object *mref;
+		struct server_aio_aspect *aio_a;
+		struct aio_object *aio;
 		struct list_head *tmp;
 
 		wait_event_interruptible_timeout(
@@ -68,15 +68,15 @@ int cb_thread(void *data)
 		list_del_init(tmp);
 		spin_unlock(&brick->cb_lock);
 
-		mref_a = container_of(tmp, struct server_mref_aspect, cb_head);
-		mref = mref_a->object;
+		aio_a = container_of(tmp, struct server_aio_aspect, cb_head);
+		aio = aio_a->object;
 		status = -EINVAL;
-		CHECK_PTR(mref, err);
+		CHECK_PTR(aio, err);
 
 		status = 0;
 		if (!aborted) {
 			down(&brick->socket_sem);
-			status = mars_send_cb(sock, mref);
+			status = mars_send_cb(sock, aio);
 			up(&brick->socket_sem);
 		}
 
@@ -92,7 +92,7 @@ int cb_thread(void *data)
 			mars_shutdown_socket(sock);
 		}
 
-		GENERIC_INPUT_CALL(brick->inputs[0], mref_put, mref);
+		GENERIC_INPUT_CALL(brick->inputs[0], aio_put, aio);
 		atomic_dec(&brick->in_flight);
 	}
 
@@ -108,29 +108,29 @@ done:
 static
 void server_endio(struct generic_callback *cb)
 {
-	struct server_mref_aspect *mref_a;
-	struct mref_object *mref;
+	struct server_aio_aspect *aio_a;
+	struct aio_object *aio;
 	struct server_brick *brick;
 	int rw;
 
-	mref_a = cb->cb_private;
-	CHECK_PTR(mref_a, err);
-	mref = mref_a->object;
-	CHECK_PTR(mref, err);
+	aio_a = cb->cb_private;
+	CHECK_PTR(aio_a, err);
+	aio = aio_a->object;
+	CHECK_PTR(aio, err);
 
-	brick = mref_a->brick;
+	brick = aio_a->brick;
 	if (!brick) {
 		MARS_WRN("late IO callback -- cannot do anything\n");
 		return;
 	}
 
-	rw = mref->ref_rw;
+	rw = aio->io_rw;
 
 	spin_lock(&brick->cb_lock);
 	if (rw) {
-		list_add_tail(&mref_a->cb_head, &brick->cb_write_list);
+		list_add_tail(&aio_a->cb_head, &brick->cb_write_list);
 	} else {
-		list_add_tail(&mref_a->cb_head, &brick->cb_read_list);
+		list_add_tail(&aio_a->cb_head, &brick->cb_read_list);
 	}
 	spin_unlock(&brick->cb_lock);
 
@@ -142,46 +142,46 @@ err:
 
 int server_io(struct server_brick *brick, struct mars_socket *sock, struct mars_cmd *cmd)
 {
-	struct mref_object *mref;
-	struct server_mref_aspect *mref_a;
+	struct aio_object *aio;
+	struct server_aio_aspect *aio_a;
 	int amount;
 	int status = -ENOTRECOVERABLE;
 
 	if (!brick->cb_running || !brick->handler_running || !mars_socket_is_alive(sock))
 		goto done;
 
-	mref = server_alloc_mref(brick);
+	aio = server_alloc_aio(brick);
 	status = -ENOMEM;
-	mref_a = server_mref_get_aspect(brick, mref);
-	if (unlikely(!mref_a)) {
-		_mref_free(mref);
+	aio_a = server_aio_get_aspect(brick, aio);
+	if (unlikely(!aio_a)) {
+		obj_free(aio);
 		goto done;
 	}
 
-	status = mars_recv_mref(sock, mref, cmd);
+	status = mars_recv_aio(sock, aio, cmd);
 	if (status < 0) {
-		_mref_free(mref);
+		obj_free(aio);
 		goto done;
 	}
 
-	mref_a->brick = brick;
-	SETUP_CALLBACK(mref, server_endio, mref_a);
+	aio_a->brick = brick;
+	SETUP_CALLBACK(aio, server_endio, aio_a);
 
 	amount = 0;
-	if (!mref->ref_cs_mode < 2)
-		amount = (mref->ref_len - 1) / 1024 + 1;
+	if (!aio->io_cs_mode < 2)
+		amount = (aio->io_len - 1) / 1024 + 1;
 	mars_limit_sleep(&server_limiter, amount);
 
-	status = GENERIC_INPUT_CALL(brick->inputs[0], mref_get, mref);
+	status = GENERIC_INPUT_CALL(brick->inputs[0], aio_get, aio);
 	if (unlikely(status < 0)) {
-		MARS_WRN("mref_get execution error = %d\n", status);
-		SIMPLE_CALLBACK(mref, status);
+		MARS_WRN("aio_get execution error = %d\n", status);
+		SIMPLE_CALLBACK(aio, status);
 		status = 0; // continue serving requests
 		goto done;
 	}
 
 	atomic_inc(&brick->in_flight);
-	GENERIC_INPUT_CALL(brick->inputs[0], mref_io, mref);
+	GENERIC_INPUT_CALL(brick->inputs[0], aio_io, aio);
 
 done:
 	return status;
@@ -191,21 +191,21 @@ static
 void _clean_list(struct server_brick *brick, struct list_head *start)
 {
 	for (;;) {
-		struct server_mref_aspect *mref_a;
-		struct mref_object *mref;
+		struct server_aio_aspect *aio_a;
+		struct aio_object *aio;
 		struct list_head *tmp = start->next;
 		if (tmp == start)
 			break;
 
 		list_del_init(tmp);
 
-		mref_a = container_of(tmp, struct server_mref_aspect, cb_head);
-		mref_a->brick = NULL;
-		mref = mref_a->object;
-		if (!mref)
+		aio_a = container_of(tmp, struct server_aio_aspect, cb_head);
+		aio_a->brick = NULL;
+		aio = aio_a->object;
+		if (!aio)
 			continue;
 
-		GENERIC_INPUT_CALL(brick->inputs[0], mref_put, mref);
+		GENERIC_INPUT_CALL(brick->inputs[0], aio_put, aio);
 	}
 }
 
@@ -405,7 +405,7 @@ int handler_thread(void *data)
 			up(&brick->socket_sem);
 			break;
 		}
-		case CMD_MREF:
+		case CMD_AIO:
 		{
 #ifdef CONFIG_MARS_LOADAVG_LIMIT // quirk
 			int my_load = (avenrun[0] + FIXED_1/200) >> FSHIFT;
@@ -451,22 +451,22 @@ static int server_get_info(struct server_output *output, struct mars_info *info)
 	return GENERIC_INPUT_CALL(input, mars_get_info, info);
 }
 
-static int server_ref_get(struct server_output *output, struct mref_object *mref)
+static int server_io_get(struct server_output *output, struct aio_object *aio)
 {
 	struct server_input *input = output->brick->inputs[0];
-	return GENERIC_INPUT_CALL(input, mref_get, mref);
+	return GENERIC_INPUT_CALL(input, aio_get, aio);
 }
 
-static void server_ref_put(struct server_output *output, struct mref_object *mref)
+static void server_io_put(struct server_output *output, struct aio_object *aio)
 {
 	struct server_input *input = output->brick->inputs[0];
-	GENERIC_INPUT_CALL(input, mref_put, mref);
+	GENERIC_INPUT_CALL(input, aio_put, aio);
 }
 
-static void server_ref_io(struct server_output *output, struct mref_object *mref)
+static void server_io_io(struct server_output *output, struct aio_object *aio)
 {
 	struct server_input *input = output->brick->inputs[0];
-	GENERIC_INPUT_CALL(input, mref_io, mref);
+	GENERIC_INPUT_CALL(input, aio_io, aio);
 }
 
 static int server_switch(struct server_brick *brick)
@@ -571,16 +571,16 @@ void server_reset_statistics(struct server_brick *brick)
 
 //////////////// object / aspect constructors / destructors ///////////////
 
-static int server_mref_aspect_init_fn(struct generic_aspect *_ini)
+static int server_aio_aspect_init_fn(struct generic_aspect *_ini)
 {
-	struct server_mref_aspect *ini = (void*)_ini;
+	struct server_aio_aspect *ini = (void*)_ini;
 	INIT_LIST_HEAD(&ini->cb_head);
 	return 0;
 }
 
-static void server_mref_aspect_exit_fn(struct generic_aspect *_ini)
+static void server_aio_aspect_exit_fn(struct generic_aspect *_ini)
 {
-	struct server_mref_aspect *ini = (void*)_ini;
+	struct server_aio_aspect *ini = (void*)_ini;
 	CHECK_HEAD_EMPTY(&ini->cb_head);
 }
 
@@ -621,9 +621,9 @@ static struct server_brick_ops server_brick_ops = {
 
 static struct server_output_ops server_output_ops = {
 	.mars_get_info = server_get_info,
-	.mref_get = server_ref_get,
-	.mref_put = server_ref_put,
-	.mref_io = server_ref_io,
+	.aio_get = server_io_get,
+	.aio_put = server_io_put,
+	.aio_io = server_io_io,
 };
 
 const struct server_input_type server_input_type = {

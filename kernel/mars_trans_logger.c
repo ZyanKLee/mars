@@ -33,7 +33,7 @@
 #else
 #define CONF_TRANS_CHUNKSIZE		(128 * 1024)
 #endif
-#define CONF_TRANS_MAX_MREF_SIZE	PAGE_SIZE
+#define CONF_TRANS_MAX_AIO_SIZE 	PAGE_SIZE
 //#define CONF_TRANS_ALIGN	PAGE_SIZE // FIXME: does not work
 #define CONF_TRANS_ALIGN		0
 
@@ -186,13 +186,13 @@ void qq_dec_flying(struct logger_queue *q)
 }
 
 static inline
-void qq_mref_insert(struct logger_queue *q, struct trans_logger_mref_aspect *mref_a)
+void qq_aio_insert(struct logger_queue *q, struct trans_logger_aio_aspect *aio_a)
 {
-	struct mref_object *mref = mref_a->object;
-	_mref_get(mref); // must be paired with __trans_logger_ref_put()
+	struct aio_object *aio = aio_a->object;
+	obj_get(aio); // must be paired with __trans_logger_io_put()
 	atomic_inc(&q->q_brick->inner_balance_count);
 
-	q_logger_insert(q, &mref_a->lh);
+	q_logger_insert(q, &aio_a->lh);
 }
 
 static inline
@@ -202,13 +202,13 @@ void qq_wb_insert(struct logger_queue *q, struct writeback_info *wb)
 }
 
 static inline
-void qq_mref_pushback(struct logger_queue *q, struct trans_logger_mref_aspect *mref_a)
+void qq_aio_pushback(struct logger_queue *q, struct trans_logger_aio_aspect *aio_a)
 {
-	_mref_check(mref_a->object);
+	obj_check(aio_a->object);
 
 	q->pushback_count++;
 
-	q_logger_pushback(q, &mref_a->lh);
+	q_logger_pushback(q, &aio_a->lh);
 }
 
 static inline
@@ -219,18 +219,18 @@ void qq_wb_pushback(struct logger_queue *q, struct writeback_info *wb)
 }
 
 static inline
-struct trans_logger_mref_aspect *qq_mref_fetch(struct logger_queue *q)
+struct trans_logger_aio_aspect *qq_aio_fetch(struct logger_queue *q)
 {
 	struct logger_head *test;
-	struct trans_logger_mref_aspect *mref_a = NULL;
+	struct trans_logger_aio_aspect *aio_a = NULL;
 
 	test = q_logger_fetch(q);
 
 	if (test) {
-		mref_a = container_of(test, struct trans_logger_mref_aspect, lh);
-		_mref_check(mref_a->object);
+		aio_a = container_of(test, struct trans_logger_aio_aspect, lh);
+		obj_check(aio_a->object);
 	}
-	return mref_a;
+	return aio_a;
 }
 
 static inline
@@ -260,10 +260,10 @@ int hash_fn(loff_t pos)
 }
 
 static inline
-struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos, int *max_len, bool use_collect_head, bool find_unstable)
+struct trans_logger_aio_aspect *_hash_find(struct list_head *start, loff_t pos, int *max_len, bool use_collect_head, bool find_unstable)
 {
 	struct list_head *tmp;
-	struct trans_logger_mref_aspect *res = NULL;
+	struct trans_logger_aio_aspect *res = NULL;
 	int len = *max_len;
 
 	/* The lists are always sorted according to age (newest first).
@@ -271,21 +271,21 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 	 * overlapping with the search area in many different ways.
 	 */
 	for (tmp = start->next; tmp != start; tmp = tmp->next) {
-		struct trans_logger_mref_aspect *test_a;
-		struct mref_object *test;
+		struct trans_logger_aio_aspect *test_a;
+		struct aio_object *test;
 		int diff;
 
 		if (use_collect_head) {
-			test_a = container_of(tmp, struct trans_logger_mref_aspect, collect_head);
+			test_a = container_of(tmp, struct trans_logger_aio_aspect, collect_head);
 		} else {
-			test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
+			test_a = container_of(tmp, struct trans_logger_aio_aspect, hash_head);
 		}
 		test = test_a->object;
 
-		_mref_check(test);
+		obj_check(test);
 
 		// are the regions overlapping?
-		if (pos >= test->ref_pos + test->ref_len || pos + len <= test->ref_pos) {
+		if (pos >= test->io_pos + test->io_len || pos + len <= test->io_pos) {
 			continue; // not relevant
 		}
 
@@ -293,9 +293,9 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 		if (find_unstable && test_a->is_stable)
 			break;
 
-		diff = test->ref_pos - pos;
+		diff = test->io_pos - pos;
 		if (diff <= 0) {
-			int restlen = test->ref_len + diff;
+			int restlen = test->io_len + diff;
 			res = test_a;
 			if (restlen < len) {
 				len = restlen;
@@ -312,13 +312,13 @@ struct trans_logger_mref_aspect *_hash_find(struct list_head *start, loff_t pos,
 }
 
 static noinline
-struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, loff_t pos, int *max_len, bool find_unstable)
+struct trans_logger_aio_aspect *hash_find(struct trans_logger_brick *brick, loff_t pos, int *max_len, bool find_unstable)
 {
 
 	int hash = hash_fn(pos);
 	struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 	struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
-	struct trans_logger_mref_aspect *res;
+	struct trans_logger_aio_aspect *res;
 
 	atomic_inc(&brick->total_hash_find_count);
 
@@ -326,10 +326,10 @@ struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, lof
 
 	res = _hash_find(&start->hash_anchor, pos, max_len, false, find_unstable);
 
-	/* Ensure the found mref can't go away...
+	/* Ensure the found aio can't go away...
 	 */
 	if (res && res->object)
-		_mref_get(res->object);
+		obj_get(res->object);
 
 	up_read(&start->hash_mutex);
 
@@ -337,14 +337,14 @@ struct trans_logger_mref_aspect *hash_find(struct trans_logger_brick *brick, lof
 }
 
 static noinline
-void hash_insert(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *elem_a)
+void hash_insert(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *elem_a)
 {
-	int hash = hash_fn(elem_a->object->ref_pos);
+	int hash = hash_fn(elem_a->object->io_pos);
 	struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 	struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
 
 	CHECK_HEAD_EMPTY(&elem_a->hash_head);
-	_mref_check(elem_a->object);
+	obj_check(elem_a->object);
 
 	// only for statistics:
 	atomic_inc(&brick->hash_count);
@@ -384,17 +384,17 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 		extended = false;
 
 		for (tmp = start->hash_anchor.next; tmp != &start->hash_anchor; tmp = tmp->next) {
-			struct trans_logger_mref_aspect *test_a;
-			struct mref_object *test;
+			struct trans_logger_aio_aspect *test_a;
+			struct aio_object *test;
 			loff_t diff;
 
-			test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
+			test_a = container_of(tmp, struct trans_logger_aio_aspect, hash_head);
 			test = test_a->object;
 
-			_mref_check(test);
+			obj_check(test);
 
 			// are the regions overlapping?
-			if (pos >= test->ref_pos + test->ref_len || pos + len <= test->ref_pos) {
+			if (pos >= test->io_pos + test->io_len || pos + len <= test->io_pos) {
 				continue; // not relevant
 			}
 
@@ -407,13 +407,13 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 				goto collision;
 
 			// extend the search region when necessary
-			diff = pos - test->ref_pos;
+			diff = pos - test->io_pos;
 			if (diff > 0) {
 				len += diff;
-				pos = test->ref_pos;
+				pos = test->io_pos;
 				extended = true;
 			}
-			diff = (test->ref_pos + test->ref_len)	- (pos + len);
+			diff = (test->io_pos + test->io_len)	- (pos + len);
 			if (diff > 0) {
 				len += diff;
 				extended = true;
@@ -425,14 +425,14 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 	*_len = len;
 
 	for (tmp = start->hash_anchor.next; tmp != &start->hash_anchor; tmp = tmp->next) {
-		struct trans_logger_mref_aspect *test_a;
-		struct mref_object *test;
+		struct trans_logger_aio_aspect *test_a;
+		struct aio_object *test;
 
-		test_a = container_of(tmp, struct trans_logger_mref_aspect, hash_head);
+		test_a = container_of(tmp, struct trans_logger_aio_aspect, hash_head);
 		test = test_a->object;
 
 		// are the regions overlapping?
-		if (pos >= test->ref_pos + test->ref_len || pos + len <= test->ref_pos) {
+		if (pos >= test->io_pos + test->io_len || pos + len <= test->io_pos) {
 			continue; // not relevant
 		}
 
@@ -442,7 +442,7 @@ void hash_extend(struct trans_logger_brick *brick, loff_t *_pos, int *_len, stru
 			MARS_ERR("collision detection did not work\n");
 		}
 		test_a->is_collected = true;
-		_mref_check(test);
+		obj_check(test);
 		list_add_tail(&test_a->collect_head, collect_list);
 	}
 
@@ -461,16 +461,16 @@ void hash_put_all(struct trans_logger_brick *brick, struct list_head *list)
 	int first_hash = -1;
 
 	for (tmp = list->next; tmp != list; tmp = tmp->next) {
-		struct trans_logger_mref_aspect *elem_a;
-		struct mref_object *elem;
+		struct trans_logger_aio_aspect *elem_a;
+		struct aio_object *elem;
 		int hash;
 
-		elem_a = container_of(tmp, struct trans_logger_mref_aspect, collect_head);
+		elem_a = container_of(tmp, struct trans_logger_aio_aspect, collect_head);
 		elem = elem_a->object;
 		CHECK_PTR(elem, err);
-		_mref_check(elem);
+		obj_check(elem);
 
-		hash = hash_fn(elem->ref_pos);
+		hash = hash_fn(elem->io_pos);
 		if (!start) {
 			struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 			start = &sub_table[hash % HASH_PER_PAGE];
@@ -496,17 +496,17 @@ err:
 }
 
 static inline
-void hash_ensure_stableness(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *mref_a)
+void hash_ensure_stableness(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *aio_a)
 {
-	if (!mref_a->is_stable) {
-		struct mref_object *mref = mref_a->object;
-		int hash = hash_fn(mref->ref_pos);
+	if (!aio_a->is_stable) {
+		struct aio_object *aio = aio_a->object;
+		int hash = hash_fn(aio->io_pos);
 		struct trans_logger_hash_anchor *sub_table = brick->hash_table[hash / HASH_PER_PAGE];
 		struct trans_logger_hash_anchor *start = &sub_table[hash % HASH_PER_PAGE];
 
 		down_write(&start->hash_mutex);
 
-		mref_a->is_stable = true;
+		aio_a->is_stable = true;
 
 		up_write(&start->hash_mutex);
 	}
@@ -559,106 +559,106 @@ int trans_logger_get_info(struct trans_logger_output *output, struct mars_info *
 }
 
 static noinline
-int _make_sshadow(struct trans_logger_output *output, struct trans_logger_mref_aspect *mref_a, struct trans_logger_mref_aspect *mshadow_a)
+int _make_sshadow(struct trans_logger_output *output, struct trans_logger_aio_aspect *aio_a, struct trans_logger_aio_aspect *mshadow_a)
 {
 	struct trans_logger_brick *brick = output->brick;
-	struct mref_object *mref = mref_a->object;
-	struct mref_object *mshadow;
+	struct aio_object *aio = aio_a->object;
+	struct aio_object *mshadow;
 	int diff;
 
 	mshadow = mshadow_a->object;
-	if (unlikely(mref->ref_len > mshadow->ref_len)) {
-		MARS_ERR("oops %d -> %d\n", mref->ref_len, mshadow->ref_len);
-		mref->ref_len = mshadow->ref_len;
+	if (unlikely(aio->io_len > mshadow->io_len)) {
+		MARS_ERR("oops %d -> %d\n", aio->io_len, mshadow->io_len);
+		aio->io_len = mshadow->io_len;
 	}
-	if (unlikely(mshadow_a == mref_a)) {
-		MARS_ERR("oops %p == %p\n", mshadow_a, mref_a);
+	if (unlikely(mshadow_a == aio_a)) {
+		MARS_ERR("oops %p == %p\n", mshadow_a, aio_a);
 		return -EINVAL;
 	}
 
-	diff = mref->ref_pos - mshadow->ref_pos;
+	diff = aio->io_pos - mshadow->io_pos;
 	if (unlikely(diff < 0)) {
 		MARS_ERR("oops diff = %d\n", diff);
 		return -EINVAL;
 	}
 
-	/* Attach mref to the existing shadow ("slave shadow").
+	/* Attach aio to the existing shadow ("slave shadow").
 	 */
-	mref_a->shadow_data = mshadow_a->shadow_data + diff;
-	mref_a->do_dealloc = false;
-	if (!mref->ref_data) { // buffered IO
-		mref->ref_data = mref_a->shadow_data;
-		mref_a->do_buffered = true;
+	aio_a->shadow_data = mshadow_a->shadow_data + diff;
+	aio_a->do_dealloc = false;
+	if (!aio->io_data) { // buffered IO
+		aio->io_data = aio_a->shadow_data;
+		aio_a->do_buffered = true;
 		atomic_inc(&brick->total_sshadow_buffered_count);
 	}
-	mref->ref_flags = mshadow->ref_flags;
-	mref_a->shadow_ref = mshadow_a;
-	mref_a->my_brick = brick;
+	aio->io_flags = mshadow->io_flags;
+	aio_a->shadow_aio = mshadow_a;
+	aio_a->my_brick = brick;
 
 	/* Get an ordinary internal reference
 	 */
-	_mref_get_first(mref); // must be paired with __trans_logger_ref_put()
+	obj_get_first(aio); // must be paired with __trans_logger_io_put()
 	atomic_inc(&brick->inner_balance_count);
 
 	/* The internal reference from slave to master is already
 	 * present due to hash_find(),
 	 * such that the master cannot go away before the slave.
-	 * It is compensated by master transition in __trans_logger_ref_put()
+	 * It is compensated by master transition in __trans_logger_io_put()
 	 */
 	atomic_inc(&brick->inner_balance_count);
 
 	atomic_inc(&brick->sshadow_count);
 	atomic_inc(&brick->total_sshadow_count);
 
-	if (unlikely(mref->ref_len <= 0)) {
-		MARS_ERR("oops, len = %d\n", mref->ref_len);
+	if (unlikely(aio->io_len <= 0)) {
+		MARS_ERR("oops, len = %d\n", aio->io_len);
 		return -EINVAL;
 	}
 
-	return mref->ref_len;
+	return aio->io_len;
 }
 
 static noinline
-int _read_ref_get(struct trans_logger_output *output, struct trans_logger_mref_aspect *mref_a)
+int _read_io_get(struct trans_logger_output *output, struct trans_logger_aio_aspect *aio_a)
 {
 	struct trans_logger_brick *brick = output->brick;
-	struct mref_object *mref = mref_a->object;
+	struct aio_object *aio = aio_a->object;
 	struct trans_logger_input *input = brick->inputs[TL_INPUT_READ];
-	struct trans_logger_mref_aspect *mshadow_a;
+	struct trans_logger_aio_aspect *mshadow_a;
 
 	/* Look if there is a newer version on the fly, shadowing
 	 * the old one.
-	 * When a shadow is found, use it as buffer for the mref.
+	 * When a shadow is found, use it as buffer for the aio.
 	 */
-	mshadow_a = hash_find(brick, mref->ref_pos, &mref->ref_len, false);
+	mshadow_a = hash_find(brick, aio->io_pos, &aio->io_len, false);
 	if (!mshadow_a) {
-		return GENERIC_INPUT_CALL(input, mref_get, mref);
+		return GENERIC_INPUT_CALL(input, aio_get, aio);
 	}
 
-	return _make_sshadow(output, mref_a, mshadow_a);
+	return _make_sshadow(output, aio_a, mshadow_a);
 }
 
 static noinline
-int _write_ref_get(struct trans_logger_output *output, struct trans_logger_mref_aspect *mref_a)
+int _write_io_get(struct trans_logger_output *output, struct trans_logger_aio_aspect *aio_a)
 {
 	struct trans_logger_brick *brick = output->brick;
-	struct mref_object *mref = mref_a->object;
+	struct aio_object *aio = aio_a->object;
 	void *data;
 #ifdef KEEP_UNIQUE
-	struct trans_logger_mref_aspect *mshadow_a;
+	struct trans_logger_aio_aspect *mshadow_a;
 #endif
 
 #ifdef CONFIG_MARS_DEBUG
-	if (unlikely(mref->ref_len <= 0)) {
-		MARS_ERR("oops, ref_len = %d\n", mref->ref_len);
+	if (unlikely(aio->io_len <= 0)) {
+		MARS_ERR("oops, io_len = %d\n", aio->io_len);
 		return -EINVAL;
 	}
 #endif
 
 #ifdef KEEP_UNIQUE
-	mshadow_a = hash_find(brick, mref->ref_pos, &mref->ref_len, true);
+	mshadow_a = hash_find(brick, aio->io_pos, &aio->io_len, true);
 	if (mshadow_a) {
-		return _make_sshadow(output, mref_a, mshadow_a);
+		return _make_sshadow(output, aio_a, mshadow_a);
 	}
 #endif
 
@@ -671,70 +671,70 @@ int _write_ref_get(struct trans_logger_output *output, struct trans_logger_mref_
 #endif
 
 	// create a new master shadow
-	data = brick_block_alloc(mref->ref_pos, (mref_a->alloc_len = mref->ref_len));
-	atomic64_add(mref->ref_len, &brick->shadow_mem_used);
+	data = brick_block_alloc(aio->io_pos, (aio_a->alloc_len = aio->io_len));
+	atomic64_add(aio->io_len, &brick->shadow_mem_used);
 #ifdef CONFIG_MARS_DEBUG
-	memset(data, 0x11, mref->ref_len);
+	memset(data, 0x11, aio->io_len);
 #endif
-	mref_a->shadow_data = data;
-	mref_a->do_dealloc = true;
-	if (!mref->ref_data) { // buffered IO
-		mref->ref_data = data;
-		mref_a->do_buffered = true;
+	aio_a->shadow_data = data;
+	aio_a->do_dealloc = true;
+	if (!aio->io_data) { // buffered IO
+		aio->io_data = data;
+		aio_a->do_buffered = true;
 		atomic_inc(&brick->total_mshadow_buffered_count);
 	}
-	mref_a->my_brick = brick;
-	mref->ref_flags = 0;
-	mref_a->shadow_ref = mref_a; // cyclic self-reference => indicates master shadow
+	aio_a->my_brick = brick;
+	aio->io_flags = 0;
+	aio_a->shadow_aio = aio_a; // cyclic self-reference => indicates master shadow
 
 	atomic_inc(&brick->mshadow_count);
 	atomic_inc(&brick->total_mshadow_count);
 	atomic_inc(&global_mshadow_count);
-	atomic64_add(mref->ref_len, &global_mshadow_used);
+	atomic64_add(aio->io_len, &global_mshadow_used);
 
 	atomic_inc(&brick->inner_balance_count);
-	_mref_get_first(mref); // must be paired with __trans_logger_ref_put()
+	obj_get_first(aio); // must be paired with __trans_logger_io_put()
 
-	return mref->ref_len;
+	return aio->io_len;
 }
 
 static noinline
-int trans_logger_ref_get(struct trans_logger_output *output, struct mref_object *mref)
+int trans_logger_io_get(struct trans_logger_output *output, struct aio_object *aio)
 {
 	struct trans_logger_brick *brick;
-	struct trans_logger_mref_aspect *mref_a;
+	struct trans_logger_aio_aspect *aio_a;
 	loff_t base_offset;
 
 	CHECK_PTR(output, err);
 	brick = output->brick;
 	CHECK_PTR(brick, err);
-	CHECK_PTR(mref, err);
+	CHECK_PTR(aio, err);
 
-	mref_a = trans_logger_mref_get_aspect(brick, mref);
-	CHECK_PTR(mref_a, err);
-	CHECK_ASPECT(mref_a, mref, err);
+	aio_a = trans_logger_aio_get_aspect(brick, aio);
+	CHECK_PTR(aio_a, err);
+	CHECK_ASPECT(aio_a, aio, err);
 
 	atomic_inc(&brick->outer_balance_count);
 
-	if (mref->ref_initialized) { // setup already performed
-		_mref_check(mref);
-		_mref_get(mref); // must be paired with __trans_logger_ref_put()
-		return mref->ref_len;
+	if (aio->obj_initialized) { // setup already performed
+		obj_check(aio);
+		obj_get(aio); // must be paired with __trans_logger_io_put()
+		return aio->io_len;
 	}
 
-	get_lamport(&mref_a->stamp);
+	get_lamport(&aio_a->stamp);
 
-	if (mref->ref_len > CONF_TRANS_MAX_MREF_SIZE && CONF_TRANS_MAX_MREF_SIZE > 0)
-		mref->ref_len = CONF_TRANS_MAX_MREF_SIZE;
+	if (aio->io_len > CONF_TRANS_MAX_AIO_SIZE && CONF_TRANS_MAX_AIO_SIZE > 0)
+		aio->io_len = CONF_TRANS_MAX_AIO_SIZE;
 
 	// ensure that REGION_SIZE boundaries are obeyed by hashing
-	base_offset = mref->ref_pos & (loff_t)(REGION_SIZE - 1);
-	if (mref->ref_len > REGION_SIZE - base_offset) {
-		mref->ref_len = REGION_SIZE - base_offset;
+	base_offset = aio->io_pos & (loff_t)(REGION_SIZE - 1);
+	if (aio->io_len > REGION_SIZE - base_offset) {
+		aio->io_len = REGION_SIZE - base_offset;
 	}
 
-	if (mref->ref_may_write == READ) {
-		return _read_ref_get(output, mref_a);
+	if (aio->io_may_write == READ) {
+		return _read_io_get(output, aio_a);
 	}
 
 	if (unlikely(brick->stopped_logging)) { // only in EMERGENCY mode
@@ -746,7 +746,7 @@ int trans_logger_ref_get(struct trans_logger_output *output, struct mref_object 
 			// in case of emergency, busy-wait should be acceptable
 			brick_msleep(HZ / 10);
 		}
-		return _read_ref_get(output, mref_a);
+		return _read_io_get(output, aio_a);
 	}
 
 	/* FIXME: THIS IS PROVISIONARY (use event instead)
@@ -755,42 +755,42 @@ int trans_logger_ref_get(struct trans_logger_output *output, struct mref_object 
 		brick_msleep(HZ / 10);
 	}
 
-	return _write_ref_get(output, mref_a);
+	return _write_io_get(output, aio_a);
 
 err:
 	return -EINVAL;
 }
 
 static noinline
-void pos_complete(struct trans_logger_mref_aspect *orig_mref_a);
+void pos_complete(struct trans_logger_aio_aspect *orig_aio_a);
 
 static noinline
-void __trans_logger_ref_put(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *mref_a)
+void __trans_logger_io_put(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *aio_a)
 {
-	struct mref_object *mref;
-	struct trans_logger_mref_aspect *shadow_a;
+	struct aio_object *aio;
+	struct trans_logger_aio_aspect *shadow_a;
 	struct trans_logger_input *input;
 
 restart:
-	CHECK_PTR(mref_a, err);
-	mref = mref_a->object;
-	CHECK_PTR(mref, err);
+	CHECK_PTR(aio_a, err);
+	aio = aio_a->object;
+	CHECK_PTR(aio, err);
 
-	_mref_check(mref);
+	obj_check(aio);
 
 	// are we a shadow (whether master or slave)?
-	shadow_a = mref_a->shadow_ref;
+	shadow_a = aio_a->shadow_aio;
 	if (shadow_a) {
 		bool finished;
 
 		CHECK_PTR(shadow_a, err);
 		CHECK_PTR(shadow_a->object, err);
-		_mref_check(shadow_a->object);
+		obj_check(shadow_a->object);
 
-		finished = _mref_put(mref);
+		finished = obj_put(aio);
 		atomic_dec(&brick->inner_balance_count);
-		if (unlikely(finished && mref_a->is_hashed)) {
-			   MARS_ERR("trying to put a hashed mref, pos = %lld len = %d\n", mref->ref_pos, mref->ref_len);
+		if (unlikely(finished && aio_a->is_hashed)) {
+			   MARS_ERR("trying to put a hashed aio, pos = %lld len = %d\n", aio->io_pos, aio->io_len);
 			   finished = false; // leaves a memleak
 		}
 
@@ -798,70 +798,70 @@ restart:
 			return;
 		}
 
-		CHECK_HEAD_EMPTY(&mref_a->lh.lh_head);
-		CHECK_HEAD_EMPTY(&mref_a->hash_head);
-		CHECK_HEAD_EMPTY(&mref_a->replay_head);
-		CHECK_HEAD_EMPTY(&mref_a->collect_head);
-		CHECK_HEAD_EMPTY(&mref_a->sub_list);
-		CHECK_HEAD_EMPTY(&mref_a->sub_head);
+		CHECK_HEAD_EMPTY(&aio_a->lh.lh_head);
+		CHECK_HEAD_EMPTY(&aio_a->hash_head);
+		CHECK_HEAD_EMPTY(&aio_a->replay_head);
+		CHECK_HEAD_EMPTY(&aio_a->collect_head);
+		CHECK_HEAD_EMPTY(&aio_a->sub_list);
+		CHECK_HEAD_EMPTY(&aio_a->sub_head);
 
-		if (mref_a->is_collected && likely(mref_a->wb_error >= 0)) {
-			pos_complete(mref_a);
+		if (aio_a->is_collected && likely(aio_a->wb_error >= 0)) {
+			pos_complete(aio_a);
 		}
 
-		CHECK_HEAD_EMPTY(&mref_a->pos_head);
+		CHECK_HEAD_EMPTY(&aio_a->pos_head);
 
-		if (shadow_a != mref_a) { // we are a slave shadow
+		if (shadow_a != aio_a) { // we are a slave shadow
 			//MARS_DBG("slave\n");
 			atomic_dec(&brick->sshadow_count);
-			CHECK_HEAD_EMPTY(&mref_a->hash_head);
-			_mref_free(mref);
+			CHECK_HEAD_EMPTY(&aio_a->hash_head);
+			obj_free(aio);
 			// now put the master shadow
-			mref_a = shadow_a;
+			aio_a = shadow_a;
 			goto restart;
 		}
 		// we are a master shadow
-		CHECK_PTR(mref_a->shadow_data, err);
-		if (mref_a->do_dealloc) {
-			brick_block_free(mref_a->shadow_data, mref_a->alloc_len);
-			atomic64_sub(mref->ref_len, &brick->shadow_mem_used);
-			mref_a->shadow_data = NULL;
-			mref_a->do_dealloc = false;
+		CHECK_PTR(aio_a->shadow_data, err);
+		if (aio_a->do_dealloc) {
+			brick_block_free(aio_a->shadow_data, aio_a->alloc_len);
+			atomic64_sub(aio->io_len, &brick->shadow_mem_used);
+			aio_a->shadow_data = NULL;
+			aio_a->do_dealloc = false;
 		}
-		if (mref_a->do_buffered) {
-			mref->ref_data = NULL;
+		if (aio_a->do_buffered) {
+			aio->io_data = NULL;
 		}
 		atomic_dec(&brick->mshadow_count);
 		atomic_dec(&global_mshadow_count);
-		atomic64_sub(mref->ref_len, &global_mshadow_used);
-		_mref_free(mref);
+		atomic64_sub(aio->io_len, &global_mshadow_used);
+		obj_free(aio);
 		return;
 	}
 
 	// only READ is allowed on non-shadow buffers
-	if (unlikely(mref->ref_rw != READ)) {
-		MARS_FAT("bad operation %d on non-shadow\n", mref->ref_rw);
+	if (unlikely(aio->io_rw != READ)) {
+		MARS_FAT("bad operation %d on non-shadow\n", aio->io_rw);
 	}
 
 	// no shadow => call through
 	input = brick->inputs[TL_INPUT_READ];
 	CHECK_PTR(input, err);
 
-	GENERIC_INPUT_CALL(input, mref_put, mref);
+	GENERIC_INPUT_CALL(input, aio_put, aio);
 
 err: ;
 }
 
 static noinline
-void _trans_logger_ref_put(struct trans_logger_output *output, struct mref_object *mref)
+void _trans_logger_io_put(struct trans_logger_output *output, struct aio_object *aio)
 {
-	struct trans_logger_mref_aspect *mref_a;
+	struct trans_logger_aio_aspect *aio_a;
 
-	mref_a = trans_logger_mref_get_aspect(output->brick, mref);
-	CHECK_PTR(mref_a, err);
-	CHECK_ASPECT(mref_a, mref, err);
+	aio_a = trans_logger_aio_get_aspect(output->brick, aio);
+	CHECK_PTR(aio_a, err);
+	CHECK_ASPECT(aio_a, aio, err);
 
-	__trans_logger_ref_put(output->brick, mref_a);
+	__trans_logger_io_put(output->brick, aio_a);
 	return;
 
 err:
@@ -869,26 +869,26 @@ err:
 }
 
 static noinline
-void trans_logger_ref_put(struct trans_logger_output *output, struct mref_object *mref)
+void trans_logger_io_put(struct trans_logger_output *output, struct aio_object *aio)
 {
 	struct trans_logger_brick *brick = output->brick;
 	atomic_dec(&brick->outer_balance_count);
-	_trans_logger_ref_put(output, mref);
+	_trans_logger_io_put(output, aio);
 }
 
 static noinline
 void _trans_logger_endio(struct generic_callback *cb)
 {
-	struct trans_logger_mref_aspect *mref_a;
+	struct trans_logger_aio_aspect *aio_a;
 	struct trans_logger_brick *brick;
 
-	mref_a = cb->cb_private;
-	CHECK_PTR(mref_a, err);
-	if (unlikely(&mref_a->cb != cb)) {
+	aio_a = cb->cb_private;
+	CHECK_PTR(aio_a, err);
+	if (unlikely(&aio_a->cb != cb)) {
 		MARS_FAT("bad callback -- hanging up\n");
 		goto err;
 	}
-	brick = mref_a->my_brick;
+	brick = aio_a->my_brick;
 	CHECK_PTR(brick, err);
 
 	NEXT_CHECKED_CALLBACK(cb, err);
@@ -903,55 +903,55 @@ err:
 }
 
 static noinline
-void trans_logger_ref_io(struct trans_logger_output *output, struct mref_object *mref)
+void trans_logger_io_io(struct trans_logger_output *output, struct aio_object *aio)
 {
 	struct trans_logger_brick *brick = output->brick;
-	struct trans_logger_mref_aspect *mref_a;
-	struct trans_logger_mref_aspect *shadow_a;
+	struct trans_logger_aio_aspect *aio_a;
+	struct trans_logger_aio_aspect *shadow_a;
 	struct trans_logger_input *input;
 
-	_mref_check(mref);
+	obj_check(aio);
 
-	mref_a = trans_logger_mref_get_aspect(brick, mref);
-	CHECK_PTR(mref_a, err);
-	CHECK_ASPECT(mref_a, mref, err);
+	aio_a = trans_logger_aio_get_aspect(brick, aio);
+	CHECK_PTR(aio_a, err);
+	CHECK_ASPECT(aio_a, aio, err);
 
 	// statistics
-	if (mref->ref_rw) {
+	if (aio->io_rw) {
 		atomic_inc(&brick->total_write_count);
 	} else {
 		atomic_inc(&brick->total_read_count);
 	}
 
 	// is this a shadow buffer?
-	shadow_a = mref_a->shadow_ref;
+	shadow_a = aio_a->shadow_aio;
 	if (shadow_a) {
-		CHECK_HEAD_EMPTY(&mref_a->lh.lh_head);
-		CHECK_HEAD_EMPTY(&mref_a->hash_head);
-		CHECK_HEAD_EMPTY(&mref_a->pos_head);
+		CHECK_HEAD_EMPTY(&aio_a->lh.lh_head);
+		CHECK_HEAD_EMPTY(&aio_a->hash_head);
+		CHECK_HEAD_EMPTY(&aio_a->pos_head);
 
-		_mref_get(mref); // must be paired with __trans_logger_ref_put()
+		obj_get(aio); // must be paired with __trans_logger_io_put()
 		atomic_inc(&brick->inner_balance_count);
 
-		qq_mref_insert(&brick->q_phase[0], mref_a);
+		qq_aio_insert(&brick->q_phase[0], aio_a);
 		wake_up_interruptible_all(&brick->worker_event);
 		return;
 	}
 
 	// only READ is allowed on non-shadow buffers
-	if (unlikely(mref->ref_rw != READ)) {
-		MARS_FAT("bad operation %d on non-shadow\n", mref->ref_rw);
+	if (unlikely(aio->io_rw != READ)) {
+		MARS_FAT("bad operation %d on non-shadow\n", aio->io_rw);
 	}
 
 	atomic_inc(&brick->any_fly_count);
 
-	mref_a->my_brick = brick;
+	aio_a->my_brick = brick;
 
-	INSERT_CALLBACK(mref, &mref_a->cb, _trans_logger_endio, mref_a);
+	INSERT_CALLBACK(aio, &aio_a->cb, _trans_logger_endio, aio_a);
 
 	input = output->brick->inputs[TL_INPUT_READ];
 
-	GENERIC_INPUT_CALL(input, mref_io, mref);
+	GENERIC_INPUT_CALL(input, aio_io, aio);
 	return;
 err:
 	MARS_FAT("cannot handle IO\n");
@@ -962,10 +962,10 @@ err:
 /* save final completion status when necessary
  */
 static noinline
-void pos_complete(struct trans_logger_mref_aspect *orig_mref_a)
+void pos_complete(struct trans_logger_aio_aspect *orig_aio_a)
 {
-	struct trans_logger_brick *brick = orig_mref_a->my_brick;
-	struct trans_logger_input *log_input = orig_mref_a->log_input;
+	struct trans_logger_brick *brick = orig_aio_a->my_brick;
+	struct trans_logger_input *log_input = orig_aio_a->log_input;
 	loff_t finished;
 	struct list_head *tmp;
 
@@ -974,11 +974,11 @@ void pos_complete(struct trans_logger_mref_aspect *orig_mref_a)
 
 	atomic_inc(&brick->total_writeback_count);
 
-	tmp = &orig_mref_a->pos_head;
+	tmp = &orig_aio_a->pos_head;
 
 	down(&log_input->inf_mutex);
 
-	finished = orig_mref_a->log_pos;
+	finished = orig_aio_a->log_pos;
 	// am I the first member? (means "youngest" list entry)
 	if (tmp == log_input->pos_list.next) {
 		if (unlikely(finished <= log_input->inf.inf_min_pos)) {
@@ -991,15 +991,15 @@ void pos_complete(struct trans_logger_mref_aspect *orig_mref_a)
 		get_lamport(&log_input->inf.inf_min_pos_stamp);
 		_inf_callback(log_input, false);
 	} else {
-		struct trans_logger_mref_aspect *prev_mref_a;
-		prev_mref_a = container_of(tmp->prev, struct trans_logger_mref_aspect, pos_head);
-		if (unlikely(finished <= prev_mref_a->log_pos)) {
-			MARS_ERR("backskip: %lld -> %lld\n", finished, prev_mref_a->log_pos);
+		struct trans_logger_aio_aspect *prev_aio_a;
+		prev_aio_a = container_of(tmp->prev, struct trans_logger_aio_aspect, pos_head);
+		if (unlikely(finished <= prev_aio_a->log_pos)) {
+			MARS_ERR("backskip: %lld -> %lld\n", finished, prev_aio_a->log_pos);
 		} else {
 			/* Transitively transfer log_pos to the predecessor
 			 * to correctly reflect the committed region.
 			 */
-			prev_mref_a->log_pos = finished;
+			prev_aio_a->log_pos = finished;
 		}
 	}
 
@@ -1022,23 +1022,23 @@ void free_writeback(struct writeback_info *wb)
 	/* Now complete the original requests.
 	 */
 	while ((tmp = wb->w_collect_list.next) != &wb->w_collect_list) {
-		struct trans_logger_mref_aspect *orig_mref_a;
-		struct mref_object *orig_mref;
+		struct trans_logger_aio_aspect *orig_aio_a;
+		struct aio_object *orig_aio;
 
 		list_del_init(tmp);
 
-		orig_mref_a = container_of(tmp, struct trans_logger_mref_aspect, collect_head);
-		orig_mref = orig_mref_a->object;
+		orig_aio_a = container_of(tmp, struct trans_logger_aio_aspect, collect_head);
+		orig_aio = orig_aio_a->object;
 
-		_mref_check(orig_mref);
-		if (unlikely(!orig_mref_a->is_collected)) {
-			MARS_ERR("request %lld (len = %d) was not collected\n", orig_mref->ref_pos, orig_mref->ref_len);
+		obj_check(orig_aio);
+		if (unlikely(!orig_aio_a->is_collected)) {
+			MARS_ERR("request %lld (len = %d) was not collected\n", orig_aio->io_pos, orig_aio->io_len);
 		}
 		if (unlikely(wb->w_error < 0)) {
-			orig_mref_a->wb_error = wb->w_error;
+			orig_aio_a->wb_error = wb->w_error;
 		}
 
-		__trans_logger_ref_put(orig_mref_a->my_brick, orig_mref_a);
+		__trans_logger_io_put(orig_aio_a->my_brick, orig_aio_a);
 	}
 
 	brick_mem_free(wb);
@@ -1049,8 +1049,8 @@ void free_writeback(struct writeback_info *wb)
 static noinline
 void wb_endio(struct generic_callback *cb)
 {
-	struct trans_logger_mref_aspect *sub_mref_a;
-	struct mref_object *sub_mref;
+	struct trans_logger_aio_aspect *sub_aio_a;
+	struct aio_object *sub_aio;
 	struct trans_logger_brick *brick;
 	struct writeback_info *wb;
 	int rw;
@@ -1058,11 +1058,11 @@ void wb_endio(struct generic_callback *cb)
 	void (**_endio)(struct generic_callback *cb);
 	void (*endio)(struct generic_callback *cb);
 
-	sub_mref_a = cb->cb_private;
-	CHECK_PTR(sub_mref_a, err);
-	sub_mref = sub_mref_a->object;
-	CHECK_PTR(sub_mref, err);
-	wb = sub_mref_a->wb;
+	sub_aio_a = cb->cb_private;
+	CHECK_PTR(sub_aio_a, err);
+	sub_aio = sub_aio_a->object;
+	CHECK_PTR(sub_aio, err);
+	wb = sub_aio_a->wb;
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
@@ -1073,7 +1073,7 @@ void wb_endio(struct generic_callback *cb)
 
 	atomic_dec(&brick->wb_balance_count);
 
-	rw = sub_mref_a->orig_rw;
+	rw = sub_aio_a->orig_rw;
 	dec = rw ? &wb->w_sub_write_count : &wb->w_sub_read_count;
 	CHECK_ATOMIC(dec, 1);
 	if (!atomic_dec_and_test(dec)) {
@@ -1153,47 +1153,47 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 		write_input = read_input;
 	}
 
-	/* Create sub_mrefs for read of old disk version (phase1)
+	/* Create sub_aios for read of old disk version (phase1)
 	 */
 	if (brick->log_reads) {
 		while (len > 0) {
-			struct trans_logger_mref_aspect *sub_mref_a;
-			struct mref_object *sub_mref;
+			struct trans_logger_aio_aspect *sub_aio_a;
+			struct aio_object *sub_aio;
 			struct trans_logger_input *log_input;
 			int this_len;
 			int status;
 
-			sub_mref = trans_logger_alloc_mref(brick);
+			sub_aio = trans_logger_alloc_aio(brick);
 
-			sub_mref->ref_pos = pos;
-			sub_mref->ref_len = len;
-			sub_mref->ref_may_write = READ;
-			sub_mref->ref_rw = READ;
-			sub_mref->ref_data = NULL;
+			sub_aio->io_pos = pos;
+			sub_aio->io_len = len;
+			sub_aio->io_may_write = READ;
+			sub_aio->io_rw = READ;
+			sub_aio->io_data = NULL;
 
-			sub_mref_a = trans_logger_mref_get_aspect(brick, sub_mref);
-			CHECK_PTR(sub_mref_a, err);
-			CHECK_ASPECT(sub_mref_a, sub_mref, err);
+			sub_aio_a = trans_logger_aio_get_aspect(brick, sub_aio);
+			CHECK_PTR(sub_aio_a, err);
+			CHECK_ASPECT(sub_aio_a, sub_aio, err);
 
-			sub_mref_a->my_input = read_input;
+			sub_aio_a->my_input = read_input;
 			log_input = brick->inputs[brick->log_input_nr];
-			sub_mref_a->log_input = log_input;
-			atomic_inc(&log_input->log_ref_count);
-			sub_mref_a->my_brick = brick;
-			sub_mref_a->orig_rw = READ;
-			sub_mref_a->wb = wb;
+			sub_aio_a->log_input = log_input;
+			atomic_inc(&log_input->log_obj_count);
+			sub_aio_a->my_brick = brick;
+			sub_aio_a->orig_rw = READ;
+			sub_aio_a->wb = wb;
 
-			status = GENERIC_INPUT_CALL(read_input, mref_get, sub_mref);
+			status = GENERIC_INPUT_CALL(read_input, aio_get, sub_aio);
 			if (unlikely(status < 0)) {
-				MARS_FAT("cannot get sub_ref, status = %d\n", status);
+				MARS_FAT("cannot get sub_aio, status = %d\n", status);
 				goto err;
 			}
 
-			list_add_tail(&sub_mref_a->sub_head, &wb->w_sub_read_list);
+			list_add_tail(&sub_aio_a->sub_head, &wb->w_sub_read_list);
 			atomic_inc(&wb->w_sub_read_count);
 			atomic_inc(&brick->wb_balance_count);
 
-			this_len = sub_mref->ref_len;
+			this_len = sub_aio->io_len;
 			pos += this_len;
 			len -= this_len;
 		}
@@ -1203,13 +1203,13 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 		len = wb->w_len;
 	}
 
-	/* Always create sub_mrefs for writeback (phase3)
+	/* Always create sub_aios for writeback (phase3)
 	 */
 	while (len > 0) {
-		struct trans_logger_mref_aspect *sub_mref_a;
-		struct mref_object *sub_mref;
-		struct trans_logger_mref_aspect *orig_mref_a;
-		struct mref_object *orig_mref;
+		struct trans_logger_aio_aspect *sub_aio_a;
+		struct aio_object *sub_aio;
+		struct trans_logger_aio_aspect *orig_aio_a;
+		struct aio_object *orig_aio;
 		struct trans_logger_input *log_input;
 		void *data;
 		int this_len = len;
@@ -1218,53 +1218,53 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 
 		atomic_inc(&brick->total_hash_find_count);
 
-		orig_mref_a = _hash_find(&wb->w_collect_list, pos, &this_len, true, false);
-		if (unlikely(!orig_mref_a)) {
+		orig_aio_a = _hash_find(&wb->w_collect_list, pos, &this_len, true, false);
+		if (unlikely(!orig_aio_a)) {
 			MARS_FAT("could not find data\n");
 			goto err;
 		}
 
-		orig_mref = orig_mref_a->object;
-		diff = pos - orig_mref->ref_pos;
+		orig_aio = orig_aio_a->object;
+		diff = pos - orig_aio->io_pos;
 		if (unlikely(diff < 0)) {
 			MARS_FAT("bad diff %d\n", diff);
 			goto err;
 		}
-		data = orig_mref_a->shadow_data + diff;
+		data = orig_aio_a->shadow_data + diff;
 
-		sub_mref = trans_logger_alloc_mref(brick);
+		sub_aio = trans_logger_alloc_aio(brick);
 
-		sub_mref->ref_pos = pos;
-		sub_mref->ref_len = this_len;
-		sub_mref->ref_may_write = WRITE;
-		sub_mref->ref_rw = WRITE;
-		sub_mref->ref_data = data;
+		sub_aio->io_pos = pos;
+		sub_aio->io_len = this_len;
+		sub_aio->io_may_write = WRITE;
+		sub_aio->io_rw = WRITE;
+		sub_aio->io_data = data;
 
-		sub_mref_a = trans_logger_mref_get_aspect(brick, sub_mref);
-		CHECK_PTR(sub_mref_a, err);
-		CHECK_ASPECT(sub_mref_a, sub_mref, err);
+		sub_aio_a = trans_logger_aio_get_aspect(brick, sub_aio);
+		CHECK_PTR(sub_aio_a, err);
+		CHECK_ASPECT(sub_aio_a, sub_aio, err);
 
-		sub_mref_a->orig_mref_a = orig_mref_a;
-		sub_mref_a->my_input = write_input;
-		log_input = orig_mref_a->log_input;
-		sub_mref_a->log_input = log_input;
-		atomic_inc(&log_input->log_ref_count);
-		sub_mref_a->my_brick = brick;
-		sub_mref_a->orig_rw = WRITE;
-		sub_mref_a->wb = wb;
+		sub_aio_a->orig_aio_a = orig_aio_a;
+		sub_aio_a->my_input = write_input;
+		log_input = orig_aio_a->log_input;
+		sub_aio_a->log_input = log_input;
+		atomic_inc(&log_input->log_obj_count);
+		sub_aio_a->my_brick = brick;
+		sub_aio_a->orig_rw = WRITE;
+		sub_aio_a->wb = wb;
 
-		status = GENERIC_INPUT_CALL(write_input, mref_get, sub_mref);
+		status = GENERIC_INPUT_CALL(write_input, aio_get, sub_aio);
 		if (unlikely(status < 0)) {
-			MARS_FAT("cannot get sub_ref, status = %d\n", status);
+			MARS_FAT("cannot get sub_aio, status = %d\n", status);
 			wb->w_error = status;
 			goto err;
 		}
 
-		list_add_tail(&sub_mref_a->sub_head, &wb->w_sub_write_list);
+		list_add_tail(&sub_aio_a->sub_head, &wb->w_sub_write_list);
 		atomic_inc(&wb->w_sub_write_count);
 		atomic_inc(&brick->wb_balance_count);
 
-		this_len = sub_mref->ref_len;
+		this_len = sub_aio->io_len;
 		pos += this_len;
 		len -= this_len;
 	}
@@ -1283,30 +1283,30 @@ struct writeback_info *make_writeback(struct trans_logger_brick *brick, loff_t p
 static inline
 void _fire_one(struct list_head *tmp, bool do_update)
 {
-	struct trans_logger_mref_aspect *sub_mref_a;
-	struct mref_object *sub_mref;
+	struct trans_logger_aio_aspect *sub_aio_a;
+	struct aio_object *sub_aio;
 	struct trans_logger_input *sub_input;
 
-	sub_mref_a = container_of(tmp, struct trans_logger_mref_aspect, sub_head);
-	sub_mref = sub_mref_a->object;
+	sub_aio_a = container_of(tmp, struct trans_logger_aio_aspect, sub_head);
+	sub_aio = sub_aio_a->object;
 
-	if (unlikely(sub_mref_a->is_fired)) {
+	if (unlikely(sub_aio_a->is_fired)) {
 		MARS_ERR("trying to fire twice\n");
 		return;
 	}
-	sub_mref_a->is_fired = true;
+	sub_aio_a->is_fired = true;
 
-	SETUP_CALLBACK(sub_mref, wb_endio, sub_mref_a);
+	SETUP_CALLBACK(sub_aio, wb_endio, sub_aio_a);
 
-	sub_input = sub_mref_a->my_input;
+	sub_input = sub_aio_a->my_input;
 
 #ifdef DO_WRITEBACK
-	GENERIC_INPUT_CALL(sub_input, mref_io, sub_mref);
+	GENERIC_INPUT_CALL(sub_input, aio_io, sub_aio);
 #else
-	SIMPLE_CALLBACK(sub_mref, 0);
+	SIMPLE_CALLBACK(sub_aio, 0);
 #endif
 	if (do_update) { // CHECK: shouldnt we do this always?
-		GENERIC_INPUT_CALL(sub_input, mref_put, sub_mref);
+		GENERIC_INPUT_CALL(sub_input, aio_put, sub_aio);
 	}
 }
 
@@ -1317,7 +1317,7 @@ void fire_writeback(struct list_head *start, bool do_update)
 
 	/* Caution! The wb structure may get deallocated
 	 * during _fire_one() in some cases (e.g. when the
-	 * callback is directly called by the mref_io operation).
+	 * callback is directly called by the aio_io operation).
 	 * Ensure that no ptr dereferencing can take
 	 * place after working on the last list member.
 	 */
@@ -1331,10 +1331,10 @@ void fire_writeback(struct list_head *start, bool do_update)
 }
 
 static inline
-void update_max_pos(struct trans_logger_mref_aspect *orig_mref_a)
+void update_max_pos(struct trans_logger_aio_aspect *orig_aio_a)
 {
-	loff_t max_pos = orig_mref_a->log_pos;
-	struct trans_logger_input *log_input = orig_mref_a->log_input;
+	loff_t max_pos = orig_aio_a->log_pos;
+	struct trans_logger_input *log_input = orig_aio_a->log_input;
 	CHECK_PTR(log_input, done);
 
 	down(&log_input->inf_mutex);
@@ -1362,9 +1362,9 @@ void update_writeback_info(struct writeback_info * wb)
 	 * may belong to a different log_input.
 	 */
 	for (tmp = start->next; tmp != start; tmp = tmp->next) {
-		struct trans_logger_mref_aspect *orig_mref_a;
-		orig_mref_a = container_of(tmp, struct trans_logger_mref_aspect, collect_head);
-		update_max_pos(orig_mref_a);
+		struct trans_logger_aio_aspect *orig_aio_a;
+		orig_aio_a = container_of(tmp, struct trans_logger_aio_aspect, collect_head);
+		update_max_pos(orig_aio_a);
 	}
 }
 
@@ -1375,14 +1375,14 @@ void update_writeback_info(struct writeback_info * wb)
  */
 
 static noinline
-void _complete(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *orig_mref_a, int error, bool pre_io)
+void _complete(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *orig_aio_a, int error, bool pre_io)
 {
-	struct mref_object *orig_mref;
+	struct aio_object *orig_aio;
 
-	orig_mref = orig_mref_a->object;
-	CHECK_PTR(orig_mref, err);
+	orig_aio = orig_aio_a->object;
+	CHECK_PTR(orig_aio, err);
 
-	if (orig_mref_a->is_completed)
+	if (orig_aio_a->is_completed)
 		goto done;
 
 	/* Can we signal completion earlier than in reality?
@@ -1401,41 +1401,41 @@ void _complete(struct trans_logger_brick *brick, struct trans_logger_mref_aspect
 		if (semantics >= 4)
 			goto signal_completion;
 
-		// 1 <= semantics <= 3: obey the MREF_FLUSH flag
-		if (orig_mref->ref_flags & MREF_FLUSH)
+		// 1 <= semantics <= 3: obey the AIO_FLUSH flag
+		if (orig_aio->io_flags & AIO_FLUSH)
 			goto done;
 
 		switch (semantics) {
 		case 1:
-			// semantics == 1 : only signal completion when both MREF_NOMETA and MREF_NOSYNC are set
-			if ((orig_mref->ref_flags & (MREF_PERF_NOMETA | MREF_PERF_NOSYNC)) != (MREF_PERF_NOMETA | MREF_PERF_NOSYNC))
+			// semantics == 1 : only signal completion when both AIO_NOMETA and AIO_NOSYNC are set
+			if ((orig_aio->io_flags & (AIO_PERF_NOMETA | AIO_PERF_NOSYNC)) != (AIO_PERF_NOMETA | AIO_PERF_NOSYNC))
 				goto done;
 			break;
 		case 2:
-			// semantics == 2 : obey the MREF_NOSYNC flag
-			if (!(orig_mref->ref_flags & MREF_PERF_NOSYNC))
+			// semantics == 2 : obey the AIO_NOSYNC flag
+			if (!(orig_aio->io_flags & AIO_PERF_NOSYNC))
 				goto done;
 			break;
 		case 3:
 		default:
-			// semantics == 3: only obey the above MREF_FLUSH flag, ignore any other flags
+			// semantics == 3: only obey the above AIO_FLUSH flag, ignore any other flags
 			break;
 		}
 	}
 
  signal_completion:
 	// check for races with concurrent threads....
-	if (cmpxchg(&orig_mref_a->is_completed, false, true))
+	if (cmpxchg(&orig_aio_a->is_completed, false, true))
 		goto done;
 
 	atomic_dec(&brick->log_fly_count);
 
 	if (likely(error >= 0)) {
-		mref_checksum(orig_mref);
-		orig_mref->ref_flags &= ~MREF_WRITING;
-		orig_mref->ref_flags |= MREF_UPTODATE;
+		aio_checksum(orig_aio);
+		orig_aio->io_flags &= ~AIO_WRITING;
+		orig_aio->io_flags |= AIO_UPTODATE;
 	}
-	CHECKED_CALLBACK(orig_mref, error, err);
+	CHECKED_CALLBACK(orig_aio, error, err);
 
 done:
 	return;
@@ -1447,20 +1447,20 @@ err:
 static noinline
 void phase0_preio(void *private)
 {
-	struct trans_logger_mref_aspect *orig_mref_a;
+	struct trans_logger_aio_aspect *orig_aio_a;
 	struct trans_logger_brick *brick;
 
-	orig_mref_a = private;
-	CHECK_PTR(orig_mref_a, err);
-	CHECK_PTR(orig_mref_a->object, err);
-	brick = orig_mref_a->my_brick;
+	orig_aio_a = private;
+	CHECK_PTR(orig_aio_a, err);
+	CHECK_PTR(orig_aio_a->object, err);
+	brick = orig_aio_a->my_brick;
 	CHECK_PTR(brick, err);
 
 	// signal completion to the upper layer
 	// FIXME: immediate error signalling is impossible here, but some delayed signalling should be possible as a workaround. Think!
-	_mref_check(orig_mref_a->object);
-	_complete(brick, orig_mref_a, 0, true);
-	_mref_check(orig_mref_a->object);
+	obj_check(orig_aio_a->object);
+	_complete(brick, orig_aio_a, 0, true);
+	obj_check(orig_aio_a->object);
 	return;
 err:
 	MARS_ERR("giving up...\n");
@@ -1469,37 +1469,37 @@ err:
 static noinline
 void phase0_endio(void *private, int error)
 {
-	struct mref_object *orig_mref;
-	struct trans_logger_mref_aspect *orig_mref_a;
+	struct aio_object *orig_aio;
+	struct trans_logger_aio_aspect *orig_aio_a;
 	struct trans_logger_brick *brick;
 
-	orig_mref_a = private;
-	CHECK_PTR(orig_mref_a, err);
-	brick = orig_mref_a->my_brick;
+	orig_aio_a = private;
+	CHECK_PTR(orig_aio_a, err);
+	brick = orig_aio_a->my_brick;
 	CHECK_PTR(brick, err);
-	orig_mref = orig_mref_a->object;
-	CHECK_PTR(orig_mref, err);
+	orig_aio = orig_aio_a->object;
+	CHECK_PTR(orig_aio, err);
 
-	orig_mref_a->is_persistent = true;
+	orig_aio_a->is_persistent = true;
 	qq_dec_flying(&brick->q_phase[0]);
 
-	/* Pin mref->ref_count so it can't go away
+	/* Pin aio->obj_count so it can't go away
 	 * after _complete().
 	 */
-	_CHECK(orig_mref_a->shadow_ref, err);
-	_mref_get(orig_mref); // must be paired with __trans_logger_ref_put()
+	_CHECK(orig_aio_a->shadow_aio, err);
+	obj_get(orig_aio); // must be paired with __trans_logger_io_put()
 	atomic_inc(&brick->inner_balance_count);
 
 	// signal completion to the upper layer
-	_complete(brick, orig_mref_a, error, false);
+	_complete(brick, orig_aio_a, error, false);
 
 	/* Queue up for the next phase.
 	 */
-	qq_mref_insert(&brick->q_phase[1], orig_mref_a);
+	qq_aio_insert(&brick->q_phase[1], orig_aio_a);
 
 	/* Undo the above pinning
 	 */
-	__trans_logger_ref_put(brick, orig_mref_a);
+	__trans_logger_io_put(brick, orig_aio_a);
 
 	banning_reset(&brick->q_phase[0].q_banning);
 
@@ -1510,9 +1510,9 @@ err:
 }
 
 static noinline
-bool phase0_startio(struct trans_logger_mref_aspect *orig_mref_a)
+bool phase0_startio(struct trans_logger_aio_aspect *orig_aio_a)
 {
-	struct mref_object *orig_mref;
+	struct aio_object *orig_aio;
 	struct trans_logger_brick *brick;
 	struct trans_logger_input *input;
 	struct log_status *logst;
@@ -1520,21 +1520,21 @@ bool phase0_startio(struct trans_logger_mref_aspect *orig_mref_a)
 	void *data;
 	bool ok;
 
-	CHECK_PTR(orig_mref_a, err);
-	orig_mref = orig_mref_a->object;
-	CHECK_PTR(orig_mref, err);
-	brick = orig_mref_a->my_brick;
+	CHECK_PTR(orig_aio_a, err);
+	orig_aio = orig_aio_a->object;
+	CHECK_PTR(orig_aio, err);
+	brick = orig_aio_a->my_brick;
 	CHECK_PTR(brick, err);
-	input = orig_mref_a->log_input;
+	input = orig_aio_a->log_input;
 	CHECK_PTR(input, err);
 	logst = &input->logst;
 	logst->do_crc = trans_logger_do_crc;
 
 	{
 		struct log_header l = {
-			.l_stamp = orig_mref_a->stamp,
-			.l_pos = orig_mref->ref_pos,
-			.l_len = orig_mref->ref_len,
+			.l_stamp = orig_aio_a->stamp,
+			.l_pos = orig_aio->io_pos,
+			.l_len = orig_aio->io_len,
 			.l_code = CODE_WRITE_NEW,
 		};
 		data = log_reserve(logst, &l);
@@ -1543,19 +1543,19 @@ bool phase0_startio(struct trans_logger_mref_aspect *orig_mref_a)
 		goto err;
 	}
 
-	hash_ensure_stableness(brick, orig_mref_a);
+	hash_ensure_stableness(brick, orig_aio_a);
 
-	memcpy(data, orig_mref_a->shadow_data, orig_mref->ref_len);
+	memcpy(data, orig_aio_a->shadow_data, orig_aio->io_len);
 
 	atomic_inc(&brick->log_fly_count);
 
-	ok = log_finalize(logst, orig_mref->ref_len, phase0_endio, orig_mref_a);
+	ok = log_finalize(logst, orig_aio->io_len, phase0_endio, orig_aio_a);
 	if (unlikely(!ok)) {
 		atomic_dec(&brick->log_fly_count);
 		goto err;
 	}
 	log_pos = logst->log_pos + logst->offset;
-	orig_mref_a->log_pos = log_pos;
+	orig_aio_a->log_pos = log_pos;
 
 	// update new log_pos in the symlinks
 	down(&input->inf_mutex);
@@ -1565,20 +1565,20 @@ bool phase0_startio(struct trans_logger_mref_aspect *orig_mref_a)
 
 #ifdef CONFIG_MARS_DEBUG
 	if (!list_empty(&input->pos_list)) {
-		struct trans_logger_mref_aspect *last_mref_a;
-		last_mref_a = container_of(input->pos_list.prev, struct trans_logger_mref_aspect, pos_head);
-		if (last_mref_a->log_pos >= orig_mref_a->log_pos) {
-			MARS_ERR("backskip in pos_list, %lld >= %lld\n", last_mref_a->log_pos, orig_mref_a->log_pos);
+		struct trans_logger_aio_aspect *last_aio_a;
+		last_aio_a = container_of(input->pos_list.prev, struct trans_logger_aio_aspect, pos_head);
+		if (last_aio_a->log_pos >= orig_aio_a->log_pos) {
+			MARS_ERR("backskip in pos_list, %lld >= %lld\n", last_aio_a->log_pos, orig_aio_a->log_pos);
 		}
 	}
 #endif
-	list_add_tail(&orig_mref_a->pos_head, &input->pos_list);
+	list_add_tail(&orig_aio_a->pos_head, &input->pos_list);
 	atomic_inc(&input->pos_count);
 	up(&input->inf_mutex);
 
 	qq_inc_flying(&brick->q_phase[0]);
 
-	phase0_preio(orig_mref_a);
+	phase0_preio(orig_aio_a);
 
 	return true;
 
@@ -1587,77 +1587,77 @@ err:
 }
 
 static noinline
-bool prep_phase_startio(struct trans_logger_mref_aspect *mref_a)
+bool prep_phase_startio(struct trans_logger_aio_aspect *aio_a)
 {
-	struct mref_object *mref = mref_a->object;
-	struct trans_logger_mref_aspect *shadow_a;
+	struct aio_object *aio = aio_a->object;
+	struct trans_logger_aio_aspect *shadow_a;
 	struct trans_logger_brick *brick;
 
-	CHECK_PTR(mref, err);
-	shadow_a = mref_a->shadow_ref;
+	CHECK_PTR(aio, err);
+	shadow_a = aio_a->shadow_aio;
 	CHECK_PTR(shadow_a, err);
-	brick = mref_a->my_brick;
+	brick = aio_a->my_brick;
 	CHECK_PTR(brick, err);
 
-	if (mref->ref_rw == READ) {
+	if (aio->io_rw == READ) {
 		// nothing to do: directly signal success.
-		struct mref_object *shadow = shadow_a->object;
-		if (unlikely(shadow == mref)) {
+		struct aio_object *shadow = shadow_a->object;
+		if (unlikely(shadow == aio)) {
 			MARS_ERR("oops, we should be a slave shadow, but are a master one\n");
 		}
 #ifdef USE_MEMCPY
-		if (mref_a->shadow_data != mref->ref_data) {
-			if (unlikely(mref->ref_len <= 0 || mref->ref_len > PAGE_SIZE)) {
-				MARS_ERR("implausible ref_len = %d\n", mref->ref_len);
+		if (aio_a->shadow_data != aio->io_data) {
+			if (unlikely(aio->io_len <= 0 || aio->io_len > PAGE_SIZE)) {
+				MARS_ERR("implausible io_len = %d\n", aio->io_len);
 			}
-			memcpy(mref->ref_data, mref_a->shadow_data, mref->ref_len);
+			memcpy(aio->io_data, aio_a->shadow_data, aio->io_len);
 		}
 #endif
-		mref->ref_flags |= MREF_UPTODATE;
+		aio->io_flags |= AIO_UPTODATE;
 
-		CHECKED_CALLBACK(mref, 0, err);
+		CHECKED_CALLBACK(aio, 0, err);
 
-		__trans_logger_ref_put(brick, mref_a);
+		__trans_logger_io_put(brick, aio_a);
 
 		return true;
 	}
 	// else WRITE
-	CHECK_HEAD_EMPTY(&mref_a->lh.lh_head);
-	CHECK_HEAD_EMPTY(&mref_a->hash_head);
-	if (unlikely(mref->ref_flags & (MREF_READING | MREF_WRITING))) {
-		MARS_ERR("bad flags %d\n", mref->ref_flags);
+	CHECK_HEAD_EMPTY(&aio_a->lh.lh_head);
+	CHECK_HEAD_EMPTY(&aio_a->hash_head);
+	if (unlikely(aio->io_flags & (AIO_READING | AIO_WRITING))) {
+		MARS_ERR("bad flags %d\n", aio->io_flags);
 	}
 	/* In case of non-buffered IO, the buffer is
 	 * under control of the user. In particular, he
 	 * may change it without telling us.
 	 * Therefore we make a copy (or "snapshot") here.
 	 */
-	mref->ref_flags |= MREF_WRITING;
+	aio->io_flags |= AIO_WRITING;
 #ifdef USE_MEMCPY
-	if (mref_a->shadow_data != mref->ref_data) {
-		if (unlikely(mref->ref_len <= 0 || mref->ref_len > PAGE_SIZE)) {
-			MARS_ERR("implausible ref_len = %d\n", mref->ref_len);
+	if (aio_a->shadow_data != aio->io_data) {
+		if (unlikely(aio->io_len <= 0 || aio->io_len > PAGE_SIZE)) {
+			MARS_ERR("implausible io_len = %d\n", aio->io_len);
 		}
-		memcpy(mref_a->shadow_data, mref->ref_data, mref->ref_len);
+		memcpy(aio_a->shadow_data, aio->io_data, aio->io_len);
 	}
 #endif
-	mref_a->is_dirty = true;
-	mref_a->shadow_ref->is_dirty = true;
+	aio_a->is_dirty = true;
+	aio_a->shadow_aio->is_dirty = true;
 #ifndef KEEP_UNIQUE
-	if (unlikely(mref_a->shadow_ref != mref_a)) {
-		MARS_ERR("something is wrong: %p != %p\n", mref_a->shadow_ref, mref_a);
+	if (unlikely(aio_a->shadow_aio != aio_a)) {
+		MARS_ERR("something is wrong: %p != %p\n", aio_a->shadow_aio, aio_a);
 	}
 #endif
-	if (likely(!mref_a->is_hashed)) {
+	if (likely(!aio_a->is_hashed)) {
 		struct trans_logger_input *log_input;
 		log_input = brick->inputs[brick->log_input_nr];
-		mref_a->log_input = log_input;
-		atomic_inc(&log_input->log_ref_count);
-		hash_insert(brick, mref_a);
+		aio_a->log_input = log_input;
+		atomic_inc(&log_input->log_obj_count);
+		hash_insert(brick, aio_a);
 	} else {
 		MARS_ERR("tried to hash twice\n");
 	}
-	return phase0_startio(mref_a);
+	return phase0_startio(aio_a);
 
 err:
 	MARS_ERR("cannot work\n");
@@ -1677,14 +1677,14 @@ err:
 static noinline
 void phase1_endio(struct generic_callback *cb)
 {
-	struct trans_logger_mref_aspect *sub_mref_a;
+	struct trans_logger_aio_aspect *sub_aio_a;
 	struct writeback_info *wb;
 	struct trans_logger_brick *brick;
 
 	CHECK_PTR(cb, err);
-	sub_mref_a = cb->cb_private;
-	CHECK_PTR(sub_mref_a, err);
-	wb = sub_mref_a->wb;
+	sub_aio_a = cb->cb_private;
+	CHECK_PTR(sub_aio_a, err);
+	wb = sub_aio_a->wb;
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
@@ -1713,32 +1713,32 @@ static noinline
 bool phase3_startio(struct writeback_info *wb);
 
 static noinline
-bool phase1_startio(struct trans_logger_mref_aspect *orig_mref_a)
+bool phase1_startio(struct trans_logger_aio_aspect *orig_aio_a)
 {
-	struct mref_object *orig_mref;
+	struct aio_object *orig_aio;
 	struct trans_logger_brick *brick;
 	struct writeback_info *wb = NULL;
 
-	CHECK_PTR(orig_mref_a, err);
-	orig_mref = orig_mref_a->object;
-	CHECK_PTR(orig_mref, err);
-	brick = orig_mref_a->my_brick;
+	CHECK_PTR(orig_aio_a, err);
+	orig_aio = orig_aio_a->object;
+	CHECK_PTR(orig_aio, err);
+	brick = orig_aio_a->my_brick;
 	CHECK_PTR(brick, err);
 
-	if (orig_mref_a->is_collected) {
+	if (orig_aio_a->is_collected) {
 		goto done;
 	}
-	if (!orig_mref_a->is_hashed) {
+	if (!orig_aio_a->is_hashed) {
 		goto done;
 	}
 
-	wb = make_writeback(brick, orig_mref->ref_pos, orig_mref->ref_len);
+	wb = make_writeback(brick, orig_aio->io_pos, orig_aio->io_len);
 	if (unlikely(!wb)) {
 		goto collision;
 	}
 
 	if (unlikely(list_empty(&wb->w_sub_write_list))) {
-		MARS_ERR("sub_write_list is empty, orig pos = %lld len = %d (collected=%d), extended pos = %lld len = %d\n", orig_mref->ref_pos, orig_mref->ref_len, (int)orig_mref_a->is_collected, wb->w_pos, wb->w_len);
+		MARS_ERR("sub_write_list is empty, orig pos = %lld len = %d (collected=%d), extended pos = %lld len = %d\n", orig_aio->io_pos, orig_aio->io_len, (int)orig_aio_a->is_collected, wb->w_pos, wb->w_len);
 		goto err;
 	}
 
@@ -1788,13 +1788,13 @@ void _phase2_endio(struct writeback_info *wb)
 static noinline
 void phase2_endio(void *private, int error)
 {
-	struct trans_logger_mref_aspect *sub_mref_a;
+	struct trans_logger_aio_aspect *sub_aio_a;
 	struct trans_logger_brick *brick;
 	struct writeback_info *wb;
 
-	sub_mref_a = private;
-	CHECK_PTR(sub_mref_a, err);
-	wb = sub_mref_a->wb;
+	sub_aio_a = private;
+	CHECK_PTR(sub_aio_a, err);
+	wb = sub_aio_a->wb;
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
@@ -1818,9 +1818,9 @@ err:
 }
 
 static noinline
-bool _phase2_startio(struct trans_logger_mref_aspect *sub_mref_a)
+bool _phase2_startio(struct trans_logger_aio_aspect *sub_aio_a)
 {
-	struct mref_object *sub_mref = NULL;
+	struct aio_object *sub_aio = NULL;
 	struct writeback_info *wb;
 	struct trans_logger_input *input;
 	struct trans_logger_brick *brick;
@@ -1828,23 +1828,23 @@ bool _phase2_startio(struct trans_logger_mref_aspect *sub_mref_a)
 	void *data;
 	bool ok;
 
-	CHECK_PTR(sub_mref_a, err);
-	sub_mref = sub_mref_a->object;
-	CHECK_PTR(sub_mref, err);
-	wb = sub_mref_a->wb;
+	CHECK_PTR(sub_aio_a, err);
+	sub_aio = sub_aio_a->object;
+	CHECK_PTR(sub_aio, err);
+	wb = sub_aio_a->wb;
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
-	input = sub_mref_a->log_input;
+	input = sub_aio_a->log_input;
 	CHECK_PTR(input, err);
 	logst = &input->logst;
 	logst->do_crc = trans_logger_do_crc;
 
 	{
 		struct log_header l = {
-			.l_stamp = sub_mref_a->stamp,
-			.l_pos = sub_mref->ref_pos,
-			.l_len = sub_mref->ref_len,
+			.l_stamp = sub_aio_a->stamp,
+			.l_pos = sub_aio->io_pos,
+			.l_len = sub_aio->io_len,
 			.l_code = CODE_WRITE_OLD,
 		};
 		data = log_reserve(logst, &l);
@@ -1854,9 +1854,9 @@ bool _phase2_startio(struct trans_logger_mref_aspect *sub_mref_a)
 		goto err;
 	}
 
-	memcpy(data, sub_mref->ref_data, sub_mref->ref_len);
+	memcpy(data, sub_aio->io_data, sub_aio->io_len);
 
-	ok = log_finalize(logst, sub_mref->ref_len, phase2_endio, sub_mref_a);
+	ok = log_finalize(logst, sub_aio->io_len, phase2_endio, sub_aio_a);
 	if (unlikely(!ok)) {
 		goto err;
 	}
@@ -1866,7 +1866,7 @@ bool _phase2_startio(struct trans_logger_mref_aspect *sub_mref_a)
 	return true;
 
 err:
-	MARS_FAT("cannot log old data, pos = %lld len = %d\n", sub_mref ? sub_mref->ref_pos : 0, sub_mref ? sub_mref->ref_len : 0);
+	MARS_FAT("cannot log old data, pos = %lld len = %d\n", sub_aio ? sub_aio->io_pos : 0, sub_aio ? sub_aio->io_len : 0);
 	return false;
 }
 
@@ -1886,13 +1886,13 @@ bool phase2_startio(struct writeback_info *wb)
 
 		start = &wb->w_sub_read_list;
 		for (tmp = start->next; tmp != start; tmp = tmp->next) {
-			struct trans_logger_mref_aspect *sub_mref_a;
-			struct mref_object *sub_mref;
+			struct trans_logger_aio_aspect *sub_aio_a;
+			struct aio_object *sub_aio;
 
-			sub_mref_a = container_of(tmp, struct trans_logger_mref_aspect, sub_head);
-			sub_mref = sub_mref_a->object;
+			sub_aio_a = container_of(tmp, struct trans_logger_aio_aspect, sub_head);
+			sub_aio = sub_aio_a->object;
 
-			if (!_phase2_startio(sub_mref_a)) {
+			if (!_phase2_startio(sub_aio_a)) {
 				ok = false;
 			}
 		}
@@ -1912,14 +1912,14 @@ err:
 static noinline
 void phase3_endio(struct generic_callback *cb)
 {
-	struct trans_logger_mref_aspect *sub_mref_a;
+	struct trans_logger_aio_aspect *sub_aio_a;
 	struct writeback_info *wb;
 	struct trans_logger_brick *brick;
 
 	CHECK_PTR(cb, err);
-	sub_mref_a = cb->cb_private;
-	CHECK_PTR(sub_mref_a, err);
-	wb = sub_mref_a->wb;
+	sub_aio_a = cb->cb_private;
+	CHECK_PTR(sub_aio_a, err);
+	wb = sub_aio_a->wb;
 	CHECK_PTR(wb, err);
 	brick = wb->w_brick;
 	CHECK_PTR(brick, err);
@@ -1956,17 +1956,17 @@ bool phase3_startio(struct writeback_info *wb)
 	/* Cleanup read requests (if they exist from previous phases)
 	 */
 	while ((tmp = start->next) != start) {
-		struct trans_logger_mref_aspect *sub_mref_a;
-		struct mref_object *sub_mref;
+		struct trans_logger_aio_aspect *sub_aio_a;
+		struct aio_object *sub_aio;
 		struct trans_logger_input *sub_input;
 
 		list_del_init(tmp);
 
-		sub_mref_a = container_of(tmp, struct trans_logger_mref_aspect, sub_head);
-		sub_mref = sub_mref_a->object;
-		sub_input = sub_mref_a->my_input;
+		sub_aio_a = container_of(tmp, struct trans_logger_aio_aspect, sub_head);
+		sub_aio = sub_aio_a->object;
+		sub_input = sub_aio_a->my_input;
 
-		GENERIC_INPUT_CALL(sub_input, mref_put, sub_mref);
+		GENERIC_INPUT_CALL(sub_input, aio_put, sub_aio);
 	}
 
 	update_writeback_info(wb);
@@ -1984,7 +1984,7 @@ bool phase3_startio(struct writeback_info *wb)
  */
 
 static noinline
-int run_mref_queue(struct logger_queue *q, bool (*startio)(struct trans_logger_mref_aspect *sub_mref_a), int max, bool do_limit)
+int run_aio_queue(struct logger_queue *q, bool (*startio)(struct trans_logger_aio_aspect *sub_aio_a), int max, bool do_limit)
 {
 	struct trans_logger_brick *brick = q->q_brick;
 	int total_len = 0;
@@ -1993,22 +1993,22 @@ int run_mref_queue(struct logger_queue *q, bool (*startio)(struct trans_logger_m
 	int res = 0;
 
 	do {
-		struct trans_logger_mref_aspect *mref_a;
-		mref_a = qq_mref_fetch(q);
-		if (!mref_a)
+		struct trans_logger_aio_aspect *aio_a;
+		aio_a = qq_aio_fetch(q);
+		if (!aio_a)
 			goto done;
 
-		if (do_limit && likely(mref_a->object))
-			total_len += mref_a->object->ref_len;
+		if (do_limit && likely(aio_a->object))
+			total_len += aio_a->object->io_len;
 
-		ok = startio(mref_a);
+		ok = startio(aio_a);
 		if (unlikely(!ok)) {
-			qq_mref_pushback(q, mref_a);
+			qq_aio_pushback(q, aio_a);
 			goto done;
 		}
 		res++;
 		found = true;
-		__trans_logger_ref_put(mref_a->my_brick, mref_a);
+		__trans_logger_io_put(aio_a->my_brick, aio_a);
 	} while (--max > 0);
 
 done:
@@ -2146,7 +2146,7 @@ struct rank_info *fly_ranks[2][LOGGER_QUEUES] = {
 };
 
 static
-struct rank_info extra_rank_mref_flying[] = {
+struct rank_info extra_rank_aio_flying[] = {
 	{     0,    0 },
 	{     1,   10 },
 	{    16,   30 },
@@ -2156,7 +2156,7 @@ struct rank_info extra_rank_mref_flying[] = {
 };
 
 static
-struct rank_info global_rank_mref_flying[] = {
+struct rank_info global_rank_aio_flying[] = {
 	{     0,    0 },
 	{    63,    0 },
 	{    64, -200 },
@@ -2169,7 +2169,7 @@ int _do_ranking(struct trans_logger_brick *brick, struct rank_data rkd[])
 	int res;
 	int i;
 	int floating_mode;
-	int mref_flying;
+	int aio_flying;
 	bool delay_callers;
 
 	ranking_start(rkd, LOGGER_QUEUES);
@@ -2204,14 +2204,14 @@ int _do_ranking(struct trans_logger_brick *brick, struct rank_data rkd[])
 		wake_up_interruptible(&brick->caller_event);
 	}
 
-	// global limit for flying mrefs
-	ranking_compute(&rkd[0], global_rank_mref_flying, atomic_read(&global_mref_flying));
+	// global limit for flying aios
+	ranking_compute(&rkd[0], global_rank_aio_flying, atomic_read(&global_aio_flying));
 
-	// local limit for flying mrefs
-	mref_flying = 0;
+	// local limit for flying aios
+	aio_flying = 0;
 	for (i = TL_INPUT_LOG1; i <= TL_INPUT_LOG2; i++) {
 		struct trans_logger_input *input = brick->inputs[i];
-		mref_flying += atomic_read(&input->logst.mref_flying);
+		aio_flying += atomic_read(&input->logst.aio_flying);
 	}
 
 	// obey the basic rules...
@@ -2232,13 +2232,13 @@ int _do_ranking(struct trans_logger_brick *brick, struct rank_data rkd[])
 		}
 
 		if (i == 0) {
-			// limit mref IO parallelism on transaction log
-			ranking_compute(&rkd[0], extra_rank_mref_flying, mref_flying);
+			// limit aio IO parallelism on transaction log
+			ranking_compute(&rkd[0], extra_rank_aio_flying, aio_flying);
 		} else if (i == 1 && !floating_mode) {
 			struct trans_logger_brick *leader;
 			int lim;
 
-			if (!mref_flying && atomic_read(&brick->q_phase[0].q_queued) > 0) {
+			if (!aio_flying && atomic_read(&brick->q_phase[0].q_queued) > 0) {
 				break;
 			}
 
@@ -2281,7 +2281,7 @@ void _init_input(struct trans_logger_input *input, loff_t start_pos)
 	logst->signal_event = &brick->worker_event;
 	logst->align_size = CONF_TRANS_ALIGN;
 	logst->chunk_size = CONF_TRANS_CHUNKSIZE;
-	logst->max_size = CONF_TRANS_MAX_MREF_SIZE;
+	logst->max_size = CONF_TRANS_MAX_AIO_SIZE;
 
 
 	input->inf.inf_min_pos = start_pos;
@@ -2492,14 +2492,14 @@ void trans_logger_log(struct trans_logger_brick *brick)
 		switch (winner) {
 		case 0:
 			interleave = 0;
-			nr = run_mref_queue(&brick->q_phase[0], prep_phase_startio, brick->q_phase[0].q_batchlen, true);
+			nr = run_aio_queue(&brick->q_phase[0], prep_phase_startio, brick->q_phase[0].q_batchlen, true);
 			goto done;
 		case 1:
 			if (interleave >= trans_logger_max_interleave && trans_logger_max_interleave >= 0) {
 				interleave = 0;
 				flush_inputs(brick, 3);
 			}
-			nr = run_mref_queue(&brick->q_phase[1], phase1_startio, brick->q_phase[1].q_batchlen, true);
+			nr = run_aio_queue(&brick->q_phase[1], phase1_startio, brick->q_phase[1].q_batchlen, true);
 			interleave += nr;
 			goto done;
 		case 2:
@@ -2561,11 +2561,11 @@ void trans_logger_log(struct trans_logger_brick *brick)
 static noinline
 void replay_endio(struct generic_callback *cb)
 {
-	struct trans_logger_mref_aspect *mref_a = cb->cb_private;
+	struct trans_logger_aio_aspect *aio_a = cb->cb_private;
 	struct trans_logger_brick *brick;
 
-	CHECK_PTR(mref_a, err);
-	brick = mref_a->my_brick;
+	CHECK_PTR(aio_a, err);
+	brick = aio_a->my_brick;
 	CHECK_PTR(brick, err);
 
 	if (unlikely(cb->cb_error < 0)) {
@@ -2574,7 +2574,7 @@ void replay_endio(struct generic_callback *cb)
 	}
 
 	spin_lock(&brick->replay_lock);
-	list_del_init(&mref_a->replay_head);
+	list_del_init(&aio_a->replay_head);
 	spin_unlock(&brick->replay_lock);
 
 	atomic_dec(&brick->replay_count);
@@ -2586,9 +2586,9 @@ void replay_endio(struct generic_callback *cb)
 }
 
 static noinline
-bool _has_conflict(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *mref_a)
+bool _has_conflict(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *aio_a)
 {
-	struct mref_object *mref = mref_a->object;
+	struct aio_object *aio = aio_a->object;
 	struct list_head *tmp;
 	bool res = false;
 
@@ -2597,12 +2597,12 @@ bool _has_conflict(struct trans_logger_brick *brick, struct trans_logger_mref_as
 	spin_lock(&brick->replay_lock);
 
 	for (tmp = brick->replay_list.next; tmp != &brick->replay_list; tmp = tmp->next) {
-		struct trans_logger_mref_aspect *tmp_a;
-		struct mref_object *tmp_mref;
+		struct trans_logger_aio_aspect *tmp_a;
+		struct aio_object *tmp_aio;
 
-		tmp_a = container_of(tmp, struct trans_logger_mref_aspect, replay_head);
-		tmp_mref = tmp_a->object;
-		if (tmp_mref->ref_pos + tmp_mref->ref_len > mref->ref_pos && tmp_mref->ref_pos < mref->ref_pos + mref->ref_len) {
+		tmp_a = container_of(tmp, struct trans_logger_aio_aspect, replay_head);
+		tmp_aio = tmp_a->object;
+		if (tmp_aio->io_pos + tmp_aio->io_len > aio->io_pos && tmp_aio->io_pos < aio->io_pos + aio->io_len) {
 			res = true;
 			break;
 		}
@@ -2613,7 +2613,7 @@ bool _has_conflict(struct trans_logger_brick *brick, struct trans_logger_mref_as
 }
 
 static noinline
-void wait_replay(struct trans_logger_brick *brick, struct trans_logger_mref_aspect *mref_a)
+void wait_replay(struct trans_logger_brick *brick, struct trans_logger_aio_aspect *aio_a)
 {
 	const int max = 512; // limit parallelism somewhat
 	int conflicts = 0;
@@ -2621,7 +2621,7 @@ void wait_replay(struct trans_logger_brick *brick, struct trans_logger_mref_aspe
 
 	wait_event_interruptible_timeout(brick->worker_event,
 					 atomic_read(&brick->replay_count) < max
-					 && (_has_conflict(brick, mref_a) ? conflicts++ : (ok = true), ok),
+					 && (_has_conflict(brick, aio_a) ? conflicts++ : (ok = true), ok),
 					 60 * HZ);
 
 	atomic_inc(&brick->replay_count);
@@ -2630,7 +2630,7 @@ void wait_replay(struct trans_logger_brick *brick, struct trans_logger_mref_aspe
 		atomic_inc(&brick->total_replay_conflict_count);
 
 	spin_lock(&brick->replay_lock);
-	list_add(&mref_a->replay_head, &brick->replay_list);
+	list_add(&aio_a->replay_head, &brick->replay_list);
 	spin_unlock(&brick->replay_lock);
 }
 
@@ -2653,57 +2653,57 @@ int apply_data(struct trans_logger_brick *brick, loff_t pos, void *buf, int len)
 	 */
 #ifdef APPLY_DATA
 	while (len > 0) {
-		struct mref_object *mref;
-		struct trans_logger_mref_aspect *mref_a;
+		struct aio_object *aio;
+		struct trans_logger_aio_aspect *aio_a;
 
 		status = -ENOMEM;
-		mref = trans_logger_alloc_mref(brick);
-		mref_a = trans_logger_mref_get_aspect(brick, mref);
-		CHECK_PTR(mref_a, done);
-		CHECK_ASPECT(mref_a, mref, done);
+		aio = trans_logger_alloc_aio(brick);
+		aio_a = trans_logger_aio_get_aspect(brick, aio);
+		CHECK_PTR(aio_a, done);
+		CHECK_ASPECT(aio_a, aio, done);
 
-		mref->ref_pos = pos;
-		mref->ref_data = NULL;
-		mref->ref_len = len;
-		mref->ref_may_write = WRITE;
-		mref->ref_rw = WRITE;
+		aio->io_pos = pos;
+		aio->io_data = NULL;
+		aio->io_len = len;
+		aio->io_may_write = WRITE;
+		aio->io_rw = WRITE;
 
-		status = GENERIC_INPUT_CALL(input, mref_get, mref);
+		status = GENERIC_INPUT_CALL(input, aio_get, aio);
 		if (unlikely(status < 0)) {
-			MARS_ERR("cannot get mref, status = %d\n", status);
+			MARS_ERR("cannot get aio, status = %d\n", status);
 			goto done;
 		}
-		if (unlikely(!mref->ref_data)) {
+		if (unlikely(!aio->io_data)) {
 			status = -ENOMEM;
-			MARS_ERR("cannot get mref, status = %d\n", status);
+			MARS_ERR("cannot get aio, status = %d\n", status);
 			goto done;
 		}
-		if (unlikely(mref->ref_len <= 0 || mref->ref_len > len)) {
+		if (unlikely(aio->io_len <= 0 || aio->io_len > len)) {
 			status = -EINVAL;
-			MARS_ERR("bad ref len = %d (requested = %d)\n", mref->ref_len, len);
+			MARS_ERR("bad aio len = %d (requested = %d)\n", aio->io_len, len);
 			goto done;
 		}
 
-		wait_replay(brick, mref_a);
+		wait_replay(brick, aio_a);
 
-		memcpy(mref->ref_data, buf, mref->ref_len);
+		memcpy(aio->io_data, buf, aio->io_len);
 
-		SETUP_CALLBACK(mref, replay_endio, mref_a);
-		mref_a->my_brick = brick;
+		SETUP_CALLBACK(aio, replay_endio, aio_a);
+		aio_a->my_brick = brick;
 
-		GENERIC_INPUT_CALL(input, mref_io, mref);
+		GENERIC_INPUT_CALL(input, aio_io, aio);
 
-		if (unlikely(mref->ref_len <= 0)) {
+		if (unlikely(aio->io_len <= 0)) {
 			status = -EINVAL;
-			MARS_ERR("bad ref len = %d (requested = %d)\n", mref->ref_len, len);
+			MARS_ERR("bad aio len = %d (requested = %d)\n", aio->io_len, len);
 			goto done;
 		}
 
-		pos += mref->ref_len;
-		buf += mref->ref_len;
-		len -= mref->ref_len;
+		pos += aio->io_len;
+		buf += aio->io_len;
+		len -= aio->io_len;
 
-		GENERIC_INPUT_CALL(input, mref_put, mref);
+		GENERIC_INPUT_CALL(input, aio_put, aio);
 	}
 #endif
 	status = 0;
@@ -2964,7 +2964,7 @@ char *trans_logger_statistics(struct trans_logger_brick *brick, int verbose)
 		 "phase1=%d "
 		 "phase2=%d "
 		 "phase3=%d | "
-		 "current #mrefs = %d "
+		 "current #aios = %d "
 		 "shadow_mem_used=%ld/%lld "
 		 "replay_count=%d "
 		 "mshadow=%d/%d "
@@ -2973,12 +2973,12 @@ char *trans_logger_statistics(struct trans_logger_brick *brick, int verbose)
 		 "balance=%d/%d/%d/%d "
 		 "pos_count1=%d "
 		 "pos_count2=%d "
-		 "log_refs1=%d "
-		 "log_refs2=%d "
+		 "log_aios1=%d "
+		 "log_aios2=%d "
 		 "any_fly=%d "
 		 "log_fly=%d "
-		 "mref_flying1=%d "
-		 "mref_flying2=%d "
+		 "aio_flying1=%d "
+		 "aio_flying2=%d "
 		 "phase0=%d+%d <%d/%d> "
 		 "phase1=%d+%d <%d/%d> "
 		 "phase2=%d+%d <%d/%d> "
@@ -3023,7 +3023,7 @@ char *trans_logger_statistics(struct trans_logger_brick *brick, int verbose)
 		 atomic_read(&brick->q_phase[1].q_total),
 		 atomic_read(&brick->q_phase[2].q_total),
 		 atomic_read(&brick->q_phase[3].q_total),
-		 atomic_read(&brick->mref_object_layout.alloc_count),
+		 atomic_read(&brick->aio_object_layout.alloc_count),
 		 atomic64_read(&brick->shadow_mem_used) / 1024,
 		 brick_global_memlimit,
 		 atomic_read(&brick->replay_count),
@@ -3037,12 +3037,12 @@ char *trans_logger_statistics(struct trans_logger_brick *brick, int verbose)
 		 atomic_read(&brick->wb_balance_count),
 		 atomic_read(&brick->inputs[TL_INPUT_LOG1]->pos_count),
 		 atomic_read(&brick->inputs[TL_INPUT_LOG2]->pos_count),
-		 atomic_read(&brick->inputs[TL_INPUT_LOG1]->log_ref_count),
-		 atomic_read(&brick->inputs[TL_INPUT_LOG2]->log_ref_count),
+		 atomic_read(&brick->inputs[TL_INPUT_LOG1]->log_obj_count),
+		 atomic_read(&brick->inputs[TL_INPUT_LOG2]->log_obj_count),
 		 atomic_read(&brick->any_fly_count),
 		 atomic_read(&brick->log_fly_count),
-		 atomic_read(&brick->inputs[TL_INPUT_LOG1]->logst.mref_flying),
-		 atomic_read(&brick->inputs[TL_INPUT_LOG2]->logst.mref_flying),
+		 atomic_read(&brick->inputs[TL_INPUT_LOG1]->logst.aio_flying),
+		 atomic_read(&brick->inputs[TL_INPUT_LOG2]->logst.aio_flying),
 		 atomic_read(&brick->q_phase[0].q_queued),
 		 atomic_read(&brick->q_phase[0].q_flying),
 		 brick->q_phase[0].pushback_count,
@@ -3090,10 +3090,10 @@ void trans_logger_reset_statistics(struct trans_logger_brick *brick)
 //////////////// object / aspect constructors / destructors ///////////////
 
 static noinline
-int trans_logger_mref_aspect_init_fn(struct generic_aspect *_ini)
+int trans_logger_aio_aspect_init_fn(struct generic_aspect *_ini)
 {
-	struct trans_logger_mref_aspect *ini = (void*)_ini;
-	ini->lh.lh_pos = &ini->object->ref_pos;
+	struct trans_logger_aio_aspect *ini = (void*)_ini;
+	ini->lh.lh_pos = &ini->object->io_pos;
 	INIT_LIST_HEAD(&ini->lh.lh_head);
 	INIT_LIST_HEAD(&ini->hash_head);
 	INIT_LIST_HEAD(&ini->pos_head);
@@ -3105,9 +3105,9 @@ int trans_logger_mref_aspect_init_fn(struct generic_aspect *_ini)
 }
 
 static noinline
-void trans_logger_mref_aspect_exit_fn(struct generic_aspect *_ini)
+void trans_logger_aio_aspect_exit_fn(struct generic_aspect *_ini)
 {
-	struct trans_logger_mref_aspect *ini = (void*)_ini;
+	struct trans_logger_aio_aspect *ini = (void*)_ini;
 	CHECK_HEAD_EMPTY(&ini->lh.lh_head);
 	CHECK_HEAD_EMPTY(&ini->hash_head);
 	CHECK_HEAD_EMPTY(&ini->pos_head);
@@ -3116,7 +3116,7 @@ void trans_logger_mref_aspect_exit_fn(struct generic_aspect *_ini)
 	CHECK_HEAD_EMPTY(&ini->sub_list);
 	CHECK_HEAD_EMPTY(&ini->sub_head);
 	if (ini->log_input) {
-		atomic_dec(&ini->log_input->log_ref_count);
+		atomic_dec(&ini->log_input->log_obj_count);
 	}
 }
 
@@ -3243,9 +3243,9 @@ static struct trans_logger_brick_ops trans_logger_brick_ops = {
 
 static struct trans_logger_output_ops trans_logger_output_ops = {
 	.mars_get_info = trans_logger_get_info,
-	.mref_get = trans_logger_ref_get,
-	.mref_put = trans_logger_ref_put,
-	.mref_io = trans_logger_ref_io,
+	.aio_get = trans_logger_io_get,
+	.aio_put = trans_logger_io_put,
+	.aio_io = trans_logger_io_io,
 };
 
 const struct trans_logger_input_type trans_logger_input_type = {

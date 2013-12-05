@@ -150,13 +150,13 @@ static int client_get_info(struct client_output *output, struct mars_info *info)
 	return status;
 }
 
-static int client_ref_get(struct client_output *output, struct mref_object *mref)
+static int client_io_get(struct client_output *output, struct aio_object *aio)
 {
 	int maxlen;
 
-	if (mref->ref_initialized) {
-		_mref_get(mref);
-		return mref->ref_len;
+	if (aio->obj_initialized) {
+		obj_get(aio);
+		return aio->io_len;
 	}
 
 	/* Limit transfers to page boundaries.
@@ -164,60 +164,60 @@ static int client_ref_get(struct client_output *output, struct mref_object *mref
 	 * TODO: improve performance by doing better when possible.
 	 * This needs help from the server in some efficient way.
 	 */
-	maxlen = PAGE_SIZE - (mref->ref_pos & (PAGE_SIZE-1));
-	if (mref->ref_len > maxlen)
-		mref->ref_len = maxlen;
+	maxlen = PAGE_SIZE - (aio->io_pos & (PAGE_SIZE-1));
+	if (aio->io_len > maxlen)
+		aio->io_len = maxlen;
 
-	if (!mref->ref_data) { // buffered IO
-		struct client_mref_aspect *mref_a = client_mref_get_aspect(output->brick, mref);
-		if (!mref_a)
+	if (!aio->io_data) { // buffered IO
+		struct client_aio_aspect *aio_a = client_aio_get_aspect(output->brick, aio);
+		if (!aio_a)
 			return -EILSEQ;
 
-		mref->ref_data = brick_block_alloc(mref->ref_pos, (mref_a->alloc_len = mref->ref_len));
+		aio->io_data = brick_block_alloc(aio->io_pos, (aio_a->alloc_len = aio->io_len));
 
-		mref_a->do_dealloc = true;
-		mref->ref_flags = 0;
+		aio_a->do_dealloc = true;
+		aio->io_flags = 0;
 	}
 
-	_mref_get_first(mref);
+	obj_get_first(aio);
 	return 0;
 }
 
-static void client_ref_put(struct client_output *output, struct mref_object *mref)
+static void client_io_put(struct client_output *output, struct aio_object *aio)
 {
-	struct client_mref_aspect *mref_a;
-	if (!_mref_put(mref))
+	struct client_aio_aspect *aio_a;
+	if (!obj_put(aio))
 		return;
-	mref_a = client_mref_get_aspect(output->brick, mref);
-	if (mref_a && mref_a->do_dealloc) {
-		brick_block_free(mref->ref_data, mref_a->alloc_len);
+	aio_a = client_aio_get_aspect(output->brick, aio);
+	if (aio_a && aio_a->do_dealloc) {
+		brick_block_free(aio->io_data, aio_a->alloc_len);
 	}
-	_mref_free(mref);
+	obj_free(aio);
 }
 
 static
-void _hash_insert(struct client_output *output, struct client_mref_aspect *mref_a)
+void _hash_insert(struct client_output *output, struct client_aio_aspect *aio_a)
 {
-	struct mref_object *mref = mref_a->object;
+	struct aio_object *aio = aio_a->object;
 	int hash_index;
 
 	spin_lock(&output->lock);
-	list_del(&mref_a->io_head);
-	list_add_tail(&mref_a->io_head, &output->mref_list);
-	list_del(&mref_a->hash_head);
-	mref->ref_id = ++output->last_id;
-	hash_index = mref->ref_id % CLIENT_HASH_MAX;
-	list_add_tail(&mref_a->hash_head, &output->hash_table[hash_index]);
+	list_del(&aio_a->io_head);
+	list_add_tail(&aio_a->io_head, &output->aio_list);
+	list_del(&aio_a->hash_head);
+	aio->io_id = ++output->last_id;
+	hash_index = aio->io_id % CLIENT_HASH_MAX;
+	list_add_tail(&aio_a->hash_head, &output->hash_table[hash_index]);
 	spin_unlock(&output->lock);
 }
 
-static void client_ref_io(struct client_output *output, struct mref_object *mref)
+static void client_io_io(struct client_output *output, struct aio_object *aio)
 {
-	struct client_mref_aspect *mref_a;
+	struct client_aio_aspect *aio_a;
 	int error = -EINVAL;
 
-	mref_a = client_mref_get_aspect(output->brick, mref);
-	if (unlikely(!mref_a)) {
+	aio_a = client_aio_get_aspect(output->brick, aio);
+	if (unlikely(!aio_a)) {
 		goto error;
 	}
 
@@ -227,10 +227,10 @@ static void client_ref_io(struct client_output *output, struct mref_object *mref
 
 	atomic_inc(&mars_global_io_flying);
 	atomic_inc(&output->fly_count);
-	_mref_get(mref);
+	obj_get(aio);
 
-	mref_a->submit_jiffies = jiffies;
-	_hash_insert(output, mref_a);
+	aio_a->submit_jiffies = jiffies;
+	_hash_insert(output, aio_a);
 
 	wake_up_interruptible(&output->event);
 
@@ -238,8 +238,8 @@ static void client_ref_io(struct client_output *output, struct mref_object *mref
 
 error:
 	MARS_ERR("IO error = %d\n", error);
-	SIMPLE_CALLBACK(mref, error);
-	client_ref_put(output, mref);
+	SIMPLE_CALLBACK(aio, error);
+	client_io_put(output, aio);
 }
 
 static
@@ -251,8 +251,8 @@ int receiver_thread(void *data)
 	while (!brick_thread_should_stop()) {
 		struct mars_cmd cmd = {};
 		struct list_head *tmp;
-		struct client_mref_aspect *mref_a = NULL;
-		struct mref_object *mref = NULL;
+		struct client_aio_aspect *aio_a = NULL;
+		struct aio_object *aio = NULL;
 
 		status = mars_recv_struct(&output->socket, &cmd, mars_cmd_meta);
 		if (status < 0)
@@ -275,40 +275,40 @@ int receiver_thread(void *data)
 
 			spin_lock(&output->lock);
 			for (tmp = output->hash_table[hash_index].next; tmp != &output->hash_table[hash_index]; tmp = tmp->next) {
-				struct mref_object *tmp_mref;
-				mref_a = container_of(tmp, struct client_mref_aspect, hash_head);
-				tmp_mref = mref_a->object;
-				if (unlikely(!tmp_mref)) {
+				struct aio_object *tmp_aio;
+				aio_a = container_of(tmp, struct client_aio_aspect, hash_head);
+				tmp_aio = aio_a->object;
+				if (unlikely(!tmp_aio)) {
 					spin_unlock(&output->lock);
-					MARS_ERR("bad internal mref pointer\n");
+					MARS_ERR("bad internal aio pointer\n");
 					status = -EBADR;
 					goto done;
 				}
-				if (tmp_mref->ref_id == cmd.cmd_int1) {
-					mref = tmp_mref;
-					list_del_init(&mref_a->hash_head);
-					list_del_init(&mref_a->io_head);
+				if (tmp_aio->io_id == cmd.cmd_int1) {
+					aio = tmp_aio;
+					list_del_init(&aio_a->hash_head);
+					list_del_init(&aio_a->io_head);
 					break;
 				}
 			}
 			spin_unlock(&output->lock);
 
-			if (unlikely(!mref)) {
+			if (unlikely(!aio)) {
 				MARS_WRN("got unknown id = %d for callback\n", cmd.cmd_int1);
 				status = -EBADR;
 				goto done;
 			}
 
-			status = mars_recv_cb(&output->socket, mref, &cmd);
+			status = mars_recv_cb(&output->socket, aio, &cmd);
 			if (unlikely(status < 0)) {
 				MARS_WRN("interrupted data transfer during callback, status = %d\n", status);
-				_hash_insert(output, mref_a);
+				_hash_insert(output, aio_a);
 				goto done;
 			}
 
-			SIMPLE_CALLBACK(mref, 0);
+			SIMPLE_CALLBACK(aio, 0);
 
-			client_ref_put(output, mref);
+			client_io_put(output, aio);
 
 			atomic_dec(&output->fly_count);
 			atomic_dec(&mars_global_io_flying);
@@ -356,9 +356,9 @@ void _do_resubmit(struct client_output *output)
 	if (!list_empty(&output->wait_list)) {
 		struct list_head *first = output->wait_list.next;
 		struct list_head *last = output->wait_list.prev;
-		struct list_head *old_start = output->mref_list.next;
+		struct list_head *old_start = output->aio_list.next;
 #define list_connect __list_del // the original routine has a misleading name: in reality it is more general
-		list_connect(&output->mref_list, first);
+		list_connect(&output->aio_list, first);
 		list_connect(last, old_start);
 		INIT_LIST_HEAD(&output->wait_list);
 	}
@@ -388,42 +388,42 @@ void _do_timeout(struct client_output *output, struct list_head *anchor, bool fo
 
 	spin_lock(&output->lock);
 	for (tmp = anchor->next, next = tmp->next; tmp != anchor; tmp = next, next = tmp->next) {
-		struct client_mref_aspect *mref_a;
+		struct client_aio_aspect *aio_a;
 
-		mref_a = container_of(tmp, struct client_mref_aspect, io_head);
+		aio_a = container_of(tmp, struct client_aio_aspect, io_head);
 
 		if (!force &&
-		    !time_is_before_jiffies(mref_a->submit_jiffies + io_timeout)) {
+		    !time_is_before_jiffies(aio_a->submit_jiffies + io_timeout)) {
 			continue;
 		}
 
-		list_del_init(&mref_a->hash_head);
-		list_del_init(&mref_a->io_head);
-		list_add_tail(&mref_a->tmp_head, &tmp_list);
+		list_del_init(&aio_a->hash_head);
+		list_del_init(&aio_a->io_head);
+		list_add_tail(&aio_a->tmp_head, &tmp_list);
 	}
 	spin_unlock(&output->lock);
 
 	while (!list_empty(&tmp_list)) {
-		struct client_mref_aspect *mref_a;
-		struct mref_object *mref;
+		struct client_aio_aspect *aio_a;
+		struct aio_object *aio;
 
 		tmp = tmp_list.next;
 		list_del_init(tmp);
-		mref_a = container_of(tmp, struct client_mref_aspect, tmp_head);
-		mref = mref_a->object;
+		aio_a = container_of(tmp, struct client_aio_aspect, tmp_head);
+		aio = aio_a->object;
 
 		if (!rounds++) {
 			MARS_WRN("timeout after %ld: signalling IO error at pos = %lld len = %d\n",
 				 io_timeout,
-				 mref->ref_pos,
-				 mref->ref_len);
+				 aio->io_pos,
+				 aio->io_len);
 		}
 
 		atomic_inc(&output->timeout_count);
 
-		SIMPLE_CALLBACK(mref, -ENOTCONN);
+		SIMPLE_CALLBACK(aio, -ENOTCONN);
 
-		client_ref_put(output, mref);
+		client_io_put(output, aio);
 
 		atomic_dec(&output->fly_count);
 		atomic_dec(&mars_global_io_flying);
@@ -441,8 +441,8 @@ static int sender_thread(void *data)
 
 	while (!brick_thread_should_stop()) {
 		struct list_head *tmp = NULL;
-		struct client_mref_aspect *mref_a;
-		struct mref_object *mref;
+		struct client_aio_aspect *aio_a;
+		struct aio_object *aio;
 
 		if (unlikely(output->recv_error != 0 || !mars_socket_is_alive(&output->socket))) {
 			MARS_DBG("recv_error = %d do_kill = %d\n", output->recv_error, do_kill);
@@ -456,7 +456,7 @@ static int sender_thread(void *data)
 			if (unlikely(status < 0)) {
 				brick_msleep(3000);
 				_do_timeout(output, &output->wait_list, false);
-				_do_timeout(output, &output->mref_list, false);
+				_do_timeout(output, &output->aio_list, false);
 				continue;
 			}
 			brick->connection_state = 2;
@@ -467,7 +467,7 @@ static int sender_thread(void *data)
 		}
 
 		wait_event_interruptible_timeout(output->event,
-						 !list_empty(&output->mref_list) ||
+						 !list_empty(&output->aio_list) ||
 						 output->get_info ||
 						 output->recv_error != 0 ||
 						 brick_thread_should_stop(),
@@ -489,29 +489,29 @@ static int sender_thread(void *data)
 			}
 		}
 
-		/* Grab the next mref from the queue
+		/* Grab the next aio from the queue
 		 */
 		spin_lock(&output->lock);
-		if (list_empty(&output->mref_list)) {
+		if (list_empty(&output->aio_list)) {
 			spin_unlock(&output->lock);
 			continue;
 		}
-		tmp = output->mref_list.next;
+		tmp = output->aio_list.next;
 		list_del(tmp);
 		list_add(tmp, &output->wait_list);
-		mref_a = container_of(tmp, struct client_mref_aspect, io_head);
+		aio_a = container_of(tmp, struct client_aio_aspect, io_head);
 		spin_unlock(&output->lock);
 
-		mref = mref_a->object;
+		aio = aio_a->object;
 
 		if (brick->limit_mode) {
 			int amount = 0;
-			if (mref->ref_cs_mode < 2)
-				amount = (mref->ref_len - 1) / 1024 + 1;
+			if (aio->io_cs_mode < 2)
+				amount = (aio->io_len - 1) / 1024 + 1;
 			mars_limit_sleep(&client_limiter, amount);
 		}
 
-		status = mars_send_mref(&output->socket, mref);
+		status = mars_send_aio(&output->socket, aio);
 		if (unlikely(status < 0)) {
 			// retry submission on next occasion..
 			MARS_WRN("sending failed, status = %d\n", status);
@@ -520,7 +520,7 @@ static int sender_thread(void *data)
 				do_kill = false;
 				_kill_socket(output);
 			}
-			_hash_insert(output, mref_a);
+			_hash_insert(output, aio_a);
 			brick_msleep(1000);
 			continue;
 		}
@@ -540,7 +540,7 @@ static int sender_thread(void *data)
 	 * we want).
 	 */
 	_do_timeout(output, &output->wait_list, true);
-	_do_timeout(output, &output->mref_list, true);
+	_do_timeout(output, &output->aio_list, true);
 
 	wake_up_interruptible(&output->sender.run_event);
 	MARS_DBG("sender terminated\n");
@@ -615,18 +615,18 @@ void client_reset_statistics(struct client_brick *brick)
 
 //////////////// object / aspect constructors / destructors ///////////////
 
-static int client_mref_aspect_init_fn(struct generic_aspect *_ini)
+static int client_aio_aspect_init_fn(struct generic_aspect *_ini)
 {
-	struct client_mref_aspect *ini = (void*)_ini;
+	struct client_aio_aspect *ini = (void*)_ini;
 	INIT_LIST_HEAD(&ini->io_head);
 	INIT_LIST_HEAD(&ini->hash_head);
 	INIT_LIST_HEAD(&ini->tmp_head);
 	return 0;
 }
 
-static void client_mref_aspect_exit_fn(struct generic_aspect *_ini)
+static void client_aio_aspect_exit_fn(struct generic_aspect *_ini)
 {
-	struct client_mref_aspect *ini = (void*)_ini;
+	struct client_aio_aspect *ini = (void*)_ini;
 	CHECK_HEAD_EMPTY(&ini->io_head);
 	CHECK_HEAD_EMPTY(&ini->hash_head);
 }
@@ -650,7 +650,7 @@ static int client_output_construct(struct client_output *output)
 		INIT_LIST_HEAD(&output->hash_table[i]);
 	}
 	spin_lock_init(&output->lock);
-	INIT_LIST_HEAD(&output->mref_list);
+	INIT_LIST_HEAD(&output->aio_list);
 	INIT_LIST_HEAD(&output->wait_list);
 	init_waitqueue_head(&output->event);
 	init_waitqueue_head(&output->sender.run_event);
@@ -679,9 +679,9 @@ static struct client_brick_ops client_brick_ops = {
 
 static struct client_output_ops client_output_ops = {
 	.mars_get_info = client_get_info,
-	.mref_get = client_ref_get,
-	.mref_put = client_ref_put,
-	.mref_io = client_ref_io,
+	.aio_get = client_io_get,
+	.aio_put = client_io_put,
+	.aio_io = client_io_io,
 };
 
 const struct client_input_type client_input_type = {

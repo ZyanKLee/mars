@@ -29,7 +29,7 @@
 
 // include the generic brick infrastructure
 
-#define OBJ_TYPE_MREF			0
+#define OBJ_TYPE_AIO			0
 #define OBJ_TYPE_MAX			1
 
 #include "brick.h"
@@ -66,52 +66,52 @@
 
 // object stuff
 
-/* mref flags */
+/* aio flags */
 
 /* Don't change the order, only add new flags at the end or at
  * pre-existing gaps.
  */
 enum {
-	__MREF_UPTODATE,
-	__MREF_READING,
-	__MREF_WRITING,
+	__AIO_UPTODATE,
+	__AIO_READING,
+	__AIO_WRITING,
 	// semantics which _must_ be obeyed
-	__MREF_FLUSH = 16,	 // force total ordering
+	__AIO_FLUSH = 16,	 // force total ordering
 	// semantics which _may_ be expoited for better performance
-	__MREF_PERF_NOMETA = 24, // allow performance improvements for bulk data
-	__MREF_PERF_NOSYNC,	 // allow skipping write-through
+	__AIO_PERF_NOMETA = 24, // allow performance improvements for bulk data
+	__AIO_PERF_NOSYNC,	 // allow skipping write-through
 };
 
-#define MREF_UPTODATE			(1UL << __MREF_UPTODATE)
-#define MREF_READING			(1UL << __MREF_READING)
-#define MREF_WRITING			(1UL << __MREF_WRITING)
-#define MREF_FLUSH			(1UL << __MREF_FLUSH)
-#define MREF_PERF_NOMETA		(1UL << __MREF_PERF_NOMETA)
-#define MREF_PERF_NOSYNC		(1UL << __MREF_PERF_NOSYNC)
+#define AIO_UPTODATE			(1UL << __AIO_UPTODATE)
+#define AIO_READING			(1UL << __AIO_READING)
+#define AIO_WRITING			(1UL << __AIO_WRITING)
+#define AIO_FLUSH			(1UL << __AIO_FLUSH)
+#define AIO_PERF_NOMETA 		(1UL << __AIO_PERF_NOMETA)
+#define AIO_PERF_NOSYNC 		(1UL << __AIO_PERF_NOSYNC)
 
-extern const struct generic_object_type mref_type;
+extern const struct generic_object_type aio_type;
 
 #define MARS_CHECKSUM_SIZE		16
 
-#define MREF_OBJECT(OBJTYPE)						\
+#define AIO_OBJECT(OBJTYPE)						\
 	CALLBACK_OBJECT(OBJTYPE);					\
 	/* supplied by caller */					\
-	void  *ref_data;	 /* preset to NULL for buffered IO */	\
-	loff_t ref_pos; 						\
-	int    ref_len; 						\
-	int    ref_may_write;						\
-	int    ref_prio;						\
-	int    ref_timeout;						\
-	int    ref_cs_mode; /* 0 = off, 1 = checksum + data, 2 = checksum only */\
-	/* maintained by the ref implementation, readable for callers */\
-	loff_t ref_total_size; /* just for info, need not be implemented */\
-	unsigned char ref_checksum[MARS_CHECKSUM_SIZE]; 		\
-	int    ref_flags;						\
-	int    ref_rw;							\
-	int    ref_id; /* not mandatory; may be used for identification */\
+	void  *io_data;  /* preset to NULL for buffered IO */		\
+	loff_t io_pos;							\
+	int    io_len;							\
+	int    io_may_write;						\
+	int    io_prio; 						\
+	int    io_timeout;						\
+	int    io_cs_mode; /* 0 = off, 1 = checksum + data, 2 = checksum only */\
+	/* maintained by the aio implementation, readable for callers */\
+	loff_t io_total_size; /* just for info, need not be implemented */\
+	unsigned char io_checksum[MARS_CHECKSUM_SIZE];			\
+	int    io_flags;						\
+	int    io_rw;							\
+	int    io_id; /* not mandatory; may be used for identification */\
 
-struct mref_object {
-	MREF_OBJECT(mref);
+struct aio_object {
+	AIO_OBJECT(aio);
 };
 
 // internal helper structs
@@ -126,7 +126,7 @@ struct mars_info {
 
 #define MARS_BRICK(BRITYPE)						\
 	GENERIC_BRICK(BRITYPE); 					\
-	struct generic_object_layout mref_object_layout;		\
+	struct generic_object_layout aio_object_layout; 		\
 	struct list_head global_brick_link;				\
 	struct list_head dent_brick_link;				\
 	const char *brick_name; 					\
@@ -162,10 +162,10 @@ struct mars_output {
 #define MARS_OUTPUT_OPS(BRITYPE)					\
 	GENERIC_OUTPUT_OPS(BRITYPE);					\
 	int  (*mars_get_info)(struct BRITYPE##_output *output, struct mars_info *info);\
-	/* mref */							\
-	int  (*mref_get)(struct BRITYPE##_output *output, struct mref_object *mref);\
-	void (*mref_io)(struct BRITYPE##_output *output, struct mref_object *mref);\
-	void (*mref_put)(struct BRITYPE##_output *output, struct mref_object *mref);\
+	/* aio */							\
+	int  (*aio_get)(struct BRITYPE##_output *output, struct aio_object *aio);\
+	void (*aio_io)(struct BRITYPE##_output *output, struct aio_object *aio);\
+	void (*aio_put)(struct BRITYPE##_output *output, struct aio_object *aio);\
 
 // all non-extendable types
 
@@ -202,16 +202,16 @@ DECLARE_BRICK_FUNCTIONS(BRITYPE);					\
 									\
 _MARS_TYPES(BRITYPE)							\
 									\
-DECLARE_ASPECT_FUNCTIONS(BRITYPE,mref); 				\
+DECLARE_ASPECT_FUNCTIONS(BRITYPE,aio);					\
 extern int init_mars_##BRITYPE(void);					\
 extern void exit_mars_##BRITYPE(void);
 
 
 // instantiate pseudo base-classes
 
-DECLARE_OBJECT_FUNCTIONS(mref);
+DECLARE_OBJECT_FUNCTIONS(aio);
 _MARS_TYPES(mars);
-DECLARE_ASPECT_FUNCTIONS(mars,mref);
+DECLARE_ASPECT_FUNCTIONS(mars,aio);
 
 /////////////////////////////////////////////////////////////////////////
 
@@ -222,20 +222,20 @@ DECLARE_ASPECT_FUNCTIONS(mars,mref);
 int BRITYPE##_brick_nr = -EEXIST;					\
 EXPORT_SYMBOL_GPL(BRITYPE##_brick_nr);					\
 									\
-static const struct generic_aspect_type BRITYPE##_mref_aspect_type = {	\
-	.aspect_type_name = #BRITYPE "_mref_aspect_type",		\
-	.object_type = &mref_type,					\
-	.aspect_size = sizeof(struct BRITYPE##_mref_aspect),		\
-	.init_fn = BRITYPE##_mref_aspect_init_fn,			\
-	.exit_fn = BRITYPE##_mref_aspect_exit_fn,			\
+static const struct generic_aspect_type BRITYPE##_aio_aspect_type = {	\
+	.aspect_type_name = #BRITYPE "_aio_aspect_type",		\
+	.object_type = &aio_type,					\
+	.aspect_size = sizeof(struct BRITYPE##_aio_aspect),		\
+	.init_fn = BRITYPE##_aio_aspect_init_fn,			\
+	.exit_fn = BRITYPE##_aio_aspect_exit_fn,			\
 };									\
 									\
 static const struct generic_aspect_type *BRITYPE##_aspect_types[OBJ_TYPE_MAX] = {\
-	[OBJ_TYPE_MREF] = &BRITYPE##_mref_aspect_type,			\
+	[OBJ_TYPE_AIO] = &BRITYPE##_aio_aspect_type,			\
 };									\
 
 extern const struct meta mars_info_meta[];
-extern const struct meta mars_mref_meta[];
+extern const struct meta mars_aio_meta[];
 extern const struct meta mars_timespec_meta[];
 
 /////////////////////////////////////////////////////////////////////////
@@ -360,7 +360,7 @@ static inline void unuse_fake_mm(void) {}
 
 extern int mars_digest_size;
 extern void mars_digest(unsigned char *digest, void *data, int len);
-extern void mref_checksum(struct mref_object *mref);
+extern void aio_checksum(struct aio_object *aio);
 
 /////////////////////////////////////////////////////////////////////////
 

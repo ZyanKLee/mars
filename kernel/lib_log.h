@@ -13,7 +13,7 @@
 #ifdef __KERNEL__
 #include "mars.h"
 
-extern atomic_t global_mref_flying;
+extern atomic_t global_aio_flying;
 #endif
 
 /* The following structure is memory-only.
@@ -236,7 +236,7 @@ struct log_status {
 	int io_prio;
 	bool do_crc;
 	// informational
-	atomic_t mref_flying;
+	atomic_t aio_flying;
 	int count;
 	loff_t log_pos;
 	struct timespec log_pos_stamp;
@@ -251,8 +251,8 @@ struct log_status {
 	int payload_offset;
 	int payload_len;
 	unsigned int seq_nr;
-	struct mref_object *log_mref;
-	struct mref_object *read_mref;
+	struct aio_object *log_aio;
+	struct aio_object *read_aio;
 	wait_queue_head_t event;
 	int error_code;
 	bool got;

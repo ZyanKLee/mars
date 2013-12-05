@@ -8,8 +8,8 @@
 extern struct mars_limiter client_limiter;
 extern int global_net_io_timeout;
 
-struct client_mref_aspect {
-	GENERIC_ASPECT(mref);
+struct client_aio_aspect {
+	GENERIC_ASPECT(aio);
 	struct list_head io_head;
 	struct list_head hash_head;
 	struct list_head tmp_head;
@@ -43,7 +43,7 @@ struct client_output {
 	atomic_t fly_count;
 	atomic_t timeout_count;
 	spinlock_t lock;
-	struct list_head mref_list;
+	struct list_head aio_list;
 	struct list_head wait_list;
 	wait_queue_head_t event;
 	int  last_id;

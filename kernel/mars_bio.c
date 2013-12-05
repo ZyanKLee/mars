@@ -53,20 +53,20 @@ EXPORT_SYMBOL_GPL(bio_io_threshold);
 static
 void bio_callback(struct bio *bio, int code)
 {
-	struct bio_mref_aspect *mref_a = bio->bi_private;
+	struct bio_aio_aspect *aio_a = bio->bi_private;
 	struct bio_brick *brick;
 	unsigned long flags;
 
-	CHECK_PTR(mref_a, err);
-	CHECK_PTR(mref_a->output, err);
-	brick = mref_a->output->brick;
+	CHECK_PTR(aio_a, err);
+	CHECK_PTR(aio_a->output, err);
+	brick = aio_a->output->brick;
 	CHECK_PTR(brick, err);
 
-	mref_a->status_code = code;
+	aio_a->status_code = code;
 
 	spin_lock_irqsave(&brick->lock, flags);
-	list_del(&mref_a->io_head);
-	list_add_tail(&mref_a->io_head, &brick->completed_list);
+	list_del(&aio_a->io_head);
+	list_add_tail(&aio_a->io_head, &brick->completed_list);
 	atomic_inc(&brick->completed_count);
 	spin_unlock_irqrestore(&brick->lock, flags);
 
@@ -82,7 +82,7 @@ err:
  * Return the length (may be smaller than requested).
  */
 static
-int make_bio(struct bio_brick *brick, void *data, int len, loff_t pos, struct bio_mref_aspect *private, struct bio **_bio)
+int make_bio(struct bio_brick *brick, void *data, int len, loff_t pos, struct bio_aio_aspect *private, struct bio **_bio)
 {
 	unsigned long long sector;
 	int sector_offset;
@@ -198,7 +198,7 @@ out:
 
 ////////////////// own brick / input / output operations //////////////////
 
-#define PRIO_INDEX(mref) ((mref)->ref_prio + 1)
+#define PRIO_INDEX(aio) ((aio)->io_prio + 1)
 
 static int bio_get_info(struct bio_output *output, struct mars_info *info)
 {
@@ -224,44 +224,44 @@ done:
 	return status;
 }
 
-static int bio_ref_get(struct bio_output *output, struct mref_object *mref)
+static int bio_io_get(struct bio_output *output, struct aio_object *aio)
 {
-	struct bio_mref_aspect *mref_a;
+	struct bio_aio_aspect *aio_a;
 	int status = -EINVAL;
 
 	CHECK_PTR(output, done);
 	CHECK_PTR(output->brick, done);
 
-	if (mref->ref_initialized) {
-		_mref_get(mref);
-		return mref->ref_len;
+	if (aio->obj_initialized) {
+		obj_get(aio);
+		return aio->io_len;
 	}
 
-	mref_a = bio_mref_get_aspect(output->brick, mref);
-	CHECK_PTR(mref_a, done);
-	mref_a->output = output;
-	mref_a->bio = NULL;
+	aio_a = bio_aio_get_aspect(output->brick, aio);
+	CHECK_PTR(aio_a, done);
+	aio_a->output = output;
+	aio_a->bio = NULL;
 
 
-	if (!mref->ref_data) { // buffered IO.
+	if (!aio->io_data) { // buffered IO.
 		status = -ENOMEM;
-		mref->ref_data = brick_block_alloc(mref->ref_pos, (mref_a->alloc_len = mref->ref_len));
-		mref_a->do_dealloc = true;
+		aio->io_data = brick_block_alloc(aio->io_pos, (aio_a->alloc_len = aio->io_len));
+		aio_a->do_dealloc = true;
 	}
 
-	status = make_bio(output->brick, mref->ref_data, mref->ref_len, mref->ref_pos, mref_a, &mref_a->bio);
-	if (unlikely(status < 0 || !mref_a->bio)) {
+	status = make_bio(output->brick, aio->io_data, aio->io_len, aio->io_pos, aio_a, &aio_a->bio);
+	if (unlikely(status < 0 || !aio_a->bio)) {
 		MARS_ERR("could not create bio, status = %d\n", status);
 		goto done;
 	}
 
-	if (unlikely(mref->ref_prio < MARS_PRIO_HIGH))
-		mref->ref_prio = MARS_PRIO_HIGH;
-	else if (unlikely(mref->ref_prio > MARS_PRIO_LOW))
-		mref->ref_prio = MARS_PRIO_LOW;
+	if (unlikely(aio->io_prio < MARS_PRIO_HIGH))
+		aio->io_prio = MARS_PRIO_HIGH;
+	else if (unlikely(aio->io_prio > MARS_PRIO_LOW))
+		aio->io_prio = MARS_PRIO_LOW;
 
-	mref->ref_len = status;
-	_mref_get_first(mref);
+	aio->io_len = status;
+	obj_get_first(aio);
 	status = 0;
 
 done:
@@ -269,30 +269,30 @@ done:
 }
 
 static
-void _bio_ref_put(struct bio_output *output, struct mref_object *mref)
+void _bio_io_put(struct bio_output *output, struct aio_object *aio)
 {
-	struct bio_mref_aspect *mref_a;
+	struct bio_aio_aspect *aio_a;
 
-	mref->ref_total_size = output->brick->total_size;
+	aio->io_total_size = output->brick->total_size;
 
-	mref_a = bio_mref_get_aspect(output->brick, mref);
-	CHECK_PTR(mref_a, err);
+	aio_a = bio_aio_get_aspect(output->brick, aio);
+	CHECK_PTR(aio_a, err);
 
-	if (likely(mref_a->bio)) {
+	if (likely(aio_a->bio)) {
 #ifdef MARS_DEBUGGING
-		int bi_cnt = atomic_read(&mref_a->bio->bi_cnt);
+		int bi_cnt = atomic_read(&aio_a->bio->bi_cnt);
 		if (bi_cnt > 1) {
 			MARS_DBG("bi_cnt = %d\n", bi_cnt);
 		}
 #endif
-		bio_put(mref_a->bio);
-		mref_a->bio = NULL;
+		bio_put(aio_a->bio);
+		aio_a->bio = NULL;
 	}
-	if (mref_a->do_dealloc) {
-		brick_block_free(mref->ref_data, mref_a->alloc_len);
-		mref->ref_data = NULL;
+	if (aio_a->do_dealloc) {
+		brick_block_free(aio->io_data, aio_a->alloc_len);
+		aio->io_data = NULL;
 	}
-	_mref_free(mref);
+	obj_free(aio);
 
 	return;
 
@@ -300,42 +300,42 @@ err:
 	MARS_FAT("cannot work\n");
 }
 
-#define BIO_REF_PUT(output,mref)					\
+#define BIO_AIO_PUT(output,aio) 					\
 	({								\
-		if (_mref_put(mref)) {					\
-			_bio_ref_put(output, mref);			\
+		if (obj_put(aio)) {					\
+			_bio_io_put(output, aio);			\
 		}							\
 	})
 
 static
-void bio_ref_put(struct bio_output *output, struct mref_object *mref)
+void bio_io_put(struct bio_output *output, struct aio_object *aio)
 {
-	BIO_REF_PUT(output, mref);
+	BIO_AIO_PUT(output, aio);
 }
 
 static
-void _bio_ref_io(struct bio_output *output, struct mref_object *mref, bool cork)
+void _bio_io_io(struct bio_output *output, struct aio_object *aio, bool cork)
 {
 	struct bio_brick *brick = output->brick;
-	struct bio_mref_aspect *mref_a = bio_mref_get_aspect(output->brick, mref);
+	struct bio_aio_aspect *aio_a = bio_aio_get_aspect(output->brick, aio);
 	struct bio *bio;
 	unsigned long long latency;
 	unsigned long flags;
 	int rw;
 	int status = -EINVAL;
 
-	CHECK_PTR(mref_a, err);
-	bio = mref_a->bio;
+	CHECK_PTR(aio_a, err);
+	bio = aio_a->bio;
 	CHECK_PTR(bio, err);
 
-	_mref_get(mref);
-	atomic_inc(&brick->fly_count[PRIO_INDEX(mref)]);
+	obj_get(aio);
+	atomic_inc(&brick->fly_count[PRIO_INDEX(aio)]);
 
 	bio_get(bio);
 
-	rw = mref->ref_rw & 1;
+	rw = aio->io_rw & 1;
 
-	if (mref->ref_flags & MREF_FLUSH) {
+	if (aio->io_flags & AIO_FLUSH) {
 #if defined(BIO_RW_RQ_MASK) || defined(BIO_RW_BARRIER)
 		rw |= (1 << BIO_RW_BARRIER);
 #elif defined(REQ_FLUSH)
@@ -358,7 +358,7 @@ void _bio_ref_io(struct bio_output *output, struct mref_object *mref, bool cork)
 #endif
 	}
 	if (brick->do_sync) {
-		if (!(mref->ref_flags & MREF_PERF_NOMETA)) {
+		if (!(aio->io_flags & AIO_PERF_NOMETA)) {
 #if defined(BIO_RW_RQ_MASK) || defined(BIO_RW_META)
 			rw |= (1 << BIO_RW_META);
 #elif defined(REQ_META)
@@ -367,7 +367,7 @@ void _bio_ref_io(struct bio_output *output, struct mref_object *mref, bool cork)
 #warning Cannot control the META flag
 #endif
 		}
-		if (!(mref->ref_flags & MREF_PERF_NOSYNC)) {
+		if (!(aio->io_flags & AIO_PERF_NOSYNC)) {
 #if defined(BIO_RW_RQ_MASK) || defined(BIO_RW_SYNCIO)
 			rw |= (1 << BIO_RW_SYNCIO);
 #elif defined(REQ_SYNC)
@@ -385,9 +385,9 @@ void _bio_ref_io(struct bio_output *output, struct mref_object *mref, bool cork)
 		// there is no substitute, but the above NOIDLE should do the job (CHECK!)
 #endif
 
-	mref_a->start_stamp = cpu_clock(raw_smp_processor_id());
+	aio_a->start_stamp = cpu_clock(raw_smp_processor_id());
 	spin_lock_irqsave(&brick->lock, flags);
-	list_add_tail(&mref_a->io_head, &brick->submitted_list[rw & 1]);
+	list_add_tail(&aio_a->io_head, &brick->submitted_list[rw & 1]);
 	spin_unlock_irqrestore(&brick->lock, flags);
 
 	bio->bi_rw = rw;
@@ -406,31 +406,31 @@ void _bio_ref_io(struct bio_output *output, struct mref_object *mref, bool cork)
 		goto done;
 
 	bio_put(bio);
-	atomic_dec(&brick->fly_count[PRIO_INDEX(mref)]);
+	atomic_dec(&brick->fly_count[PRIO_INDEX(aio)]);
 
 err:
 	MARS_ERR("IO error %d\n", status);
-	CHECKED_CALLBACK(mref, status, done);
+	CHECKED_CALLBACK(aio, status, done);
 	atomic_dec(&mars_global_io_flying);
 
 done: ;
 }
 
 static
-void bio_ref_io(struct bio_output *output, struct mref_object *mref)
+void bio_io_io(struct bio_output *output, struct aio_object *aio)
 {
 	atomic_inc(&mars_global_io_flying);
-	if (mref->ref_prio == MARS_PRIO_LOW ||
-	    (mref->ref_prio == MARS_PRIO_NORMAL && mref->ref_rw)) {
-		struct bio_mref_aspect *mref_a = bio_mref_get_aspect(output->brick, mref);
+	if (aio->io_prio == MARS_PRIO_LOW ||
+	    (aio->io_prio == MARS_PRIO_NORMAL && aio->io_rw)) {
+		struct bio_aio_aspect *aio_a = bio_aio_get_aspect(output->brick, aio);
 		struct bio_brick *brick = output->brick;
 		unsigned long flags;
 
-		_mref_get(mref);
+		obj_get(aio);
 
 		spin_lock_irqsave(&brick->lock, flags);
-		list_add_tail(&mref_a->io_head, &brick->queue_list[PRIO_INDEX(mref)]);
-		atomic_inc(&brick->queue_count[PRIO_INDEX(mref)]);
+		list_add_tail(&aio_a->io_head, &brick->queue_list[PRIO_INDEX(aio)]);
+		atomic_inc(&brick->queue_count[PRIO_INDEX(aio)]);
 		spin_unlock_irqrestore(&brick->lock, flags);
 		brick->submitted = true;
 
@@ -438,7 +438,7 @@ void bio_ref_io(struct bio_output *output, struct mref_object *mref)
 		return;
 	}
 	// realtime IO: start immediately
-	_bio_ref_io(output, mref, false);
+	_bio_io_io(output, aio, false);
 }
 
 static
@@ -479,8 +479,8 @@ int bio_response_thread(void *data)
 		count = 0;
 		for (;;) {
 			struct list_head *tmp;
-			struct bio_mref_aspect *mref_a;
-			struct mref_object *mref;
+			struct bio_aio_aspect *aio_a;
+			struct aio_object *aio;
 			unsigned long long latency;
 			int code;
 
@@ -494,32 +494,32 @@ int bio_response_thread(void *data)
 			list_del_init(tmp);
 			atomic_dec(&brick->completed_count);
 
-			mref_a = container_of(tmp, struct bio_mref_aspect, io_head);
-			mref = mref_a->object;
+			aio_a = container_of(tmp, struct bio_aio_aspect, io_head);
+			aio = aio_a->object;
 
 
-			latency = cpu_clock(raw_smp_processor_id()) - mref_a->start_stamp;
-			threshold_check(&bio_io_threshold[mref->ref_rw & 1], latency);
+			latency = cpu_clock(raw_smp_processor_id()) - aio_a->start_stamp;
+			threshold_check(&bio_io_threshold[aio->io_rw & 1], latency);
 
-			code = mref_a->status_code;
+			code = aio_a->status_code;
 
 			if (code < 0) {
 				MARS_ERR("IO error %d\n", code);
 			} else {
-				mref_checksum(mref);
-				mref->ref_flags |= MREF_UPTODATE;
+				aio_checksum(aio);
+				aio->io_flags |= AIO_UPTODATE;
 			}
 
-			SIMPLE_CALLBACK(mref, code);
+			SIMPLE_CALLBACK(aio, code);
 
-			atomic_dec(&brick->fly_count[PRIO_INDEX(mref)]);
-			atomic_inc(&brick->total_completed_count[PRIO_INDEX(mref)]);
+			atomic_dec(&brick->fly_count[PRIO_INDEX(aio)]);
+			atomic_inc(&brick->total_completed_count[PRIO_INDEX(aio)]);
 			count++;
 
-			if (likely(mref_a->bio)) {
-				bio_put(mref_a->bio);
+			if (likely(aio_a->bio)) {
+				bio_put(aio_a->bio);
 			}
-			BIO_REF_PUT(mref_a->output, mref);
+			BIO_AIO_PUT(aio_a->output, aio);
 
 			atomic_dec(&mars_global_io_flying);
 		}
@@ -532,9 +532,9 @@ int bio_response_thread(void *data)
 
 			spin_lock_irqsave(&brick->lock, flags);
 			if (!list_empty(&brick->submitted_list[i])) {
-				struct bio_mref_aspect *mref_a;
-				mref_a = container_of(brick->submitted_list[i].next, struct bio_mref_aspect, io_head);
-				eldest = mref_a->start_stamp;
+				struct bio_aio_aspect *aio_a;
+				aio_a = container_of(brick->submitted_list[i].next, struct bio_aio_aspect, io_head);
+				eldest = aio_a->start_stamp;
 			}
 			spin_unlock_irqrestore(&brick->lock, flags);
 
@@ -592,25 +592,25 @@ int bio_submit_thread(void *data)
 
 			while (!list_empty(&tmp_list)) {
 				struct list_head *tmp = tmp_list.next;
-				struct bio_mref_aspect *mref_a;
-				struct mref_object *mref;
+				struct bio_aio_aspect *aio_a;
+				struct aio_object *aio;
 				bool cork;
 
 				list_del_init(tmp);
 
-				mref_a = container_of(tmp, struct bio_mref_aspect, io_head);
-				mref = mref_a->object;
-				if (unlikely(!mref)) {
-					MARS_ERR("invalid mref\n");
+				aio_a = container_of(tmp, struct bio_aio_aspect, io_head);
+				aio = aio_a->object;
+				if (unlikely(!aio)) {
+					MARS_ERR("invalid aio\n");
 					continue;
 				}
 
-				atomic_dec(&brick->queue_count[PRIO_INDEX(mref)]);
-				cork = atomic_read(&brick->queue_count[PRIO_INDEX(mref)]) > 0;
+				atomic_dec(&brick->queue_count[PRIO_INDEX(aio)]);
+				cork = atomic_read(&brick->queue_count[PRIO_INDEX(aio)]) > 0;
 
-				_bio_ref_io(mref_a->output, mref, cork);
+				_bio_io_io(aio_a->output, aio, cork);
 
-				BIO_REF_PUT(mref_a->output, mref);
+				BIO_AIO_PUT(aio_a->output, aio);
 			}
 		}
 	}
@@ -754,16 +754,16 @@ void bio_reset_statistics(struct bio_brick *brick)
 
 //////////////// object / aspect constructors / destructors ///////////////
 
-static int bio_mref_aspect_init_fn(struct generic_aspect *_ini)
+static int bio_aio_aspect_init_fn(struct generic_aspect *_ini)
 {
-	struct bio_mref_aspect *ini = (void*)_ini;
+	struct bio_aio_aspect *ini = (void*)_ini;
 	INIT_LIST_HEAD(&ini->io_head);
 	return 0;
 }
 
-static void bio_mref_aspect_exit_fn(struct generic_aspect *_ini)
+static void bio_aio_aspect_exit_fn(struct generic_aspect *_ini)
 {
-	struct bio_mref_aspect *ini = (void*)_ini;
+	struct bio_aio_aspect *ini = (void*)_ini;
 	(void)ini;
 }
 
@@ -810,9 +810,9 @@ static struct bio_brick_ops bio_brick_ops = {
 
 static struct bio_output_ops bio_output_ops = {
 	.mars_get_info = bio_get_info,
-	.mref_get = bio_ref_get,
-	.mref_put = bio_ref_put,
-	.mref_io = bio_ref_io,
+	.aio_get = bio_io_get,
+	.aio_put = bio_io_put,
+	.aio_io = bio_io_io,
 };
 
 const struct bio_input_type bio_input_type = {
