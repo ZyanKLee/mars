@@ -7,7 +7,7 @@
 
 #define LIMITER_TIME_RESOLUTION 	NSEC_PER_SEC
 
-int mars_limit(struct mars_limiter *lim, int amount)
+int xio_limit(struct xio_limiter *lim, int amount)
 {
 	int delay = 0;
 	long long now;
@@ -84,11 +84,11 @@ int mars_limit(struct mars_limiter *lim, int amount)
 	}
 	return delay;
 }
-EXPORT_SYMBOL_GPL(mars_limit);
+EXPORT_SYMBOL_GPL(xio_limit);
 
-void mars_limit_sleep(struct mars_limiter *lim, int amount)
+void xio_limit_sleep(struct xio_limiter *lim, int amount)
 {
-	int sleep = mars_limit(lim, amount);
+	int sleep = xio_limit(lim, amount);
 	if (sleep > 0) {
 		if (unlikely(lim->lim_max_delay <= 0))
 			lim->lim_max_delay = 1000;
@@ -97,4 +97,4 @@ void mars_limit_sleep(struct mars_limiter *lim, int amount)
 		brick_msleep(sleep);
 	}
 }
-EXPORT_SYMBOL_GPL(mars_limit_sleep);
+EXPORT_SYMBOL_GPL(xio_limit_sleep);

@@ -130,7 +130,7 @@ struct generic_aspect {
 #define obj_check(aio)							\
 	({								\
 		if (unlikely(BRICK_CHECKING && !(aio)->obj_initialized)) {\
-			MARS_ERR("aio %p is not initialized\n", (aio)); \
+			XIO_ERR("aio %p is not initialized\n", (aio));	\
 		}							\
 		CHECK_ATOMIC(&(aio)->obj_count, 1);			\
 	})
@@ -138,7 +138,7 @@ struct generic_aspect {
 #define obj_get_first(aio)						\
 	({								\
 		if (unlikely(BRICK_CHECKING && (aio)->obj_initialized)) {\
-			MARS_ERR("aio %p is already initialized\n", (aio));\
+			XIO_ERR("aio %p is already initialized\n", (aio));\
 		}							\
 		_CHECK_ATOMIC(&(aio)->obj_count, !=, 0);		\
 		(aio)->obj_initialized = true;				\

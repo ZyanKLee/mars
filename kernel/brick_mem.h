@@ -62,7 +62,7 @@ extern atomic64_t brick_global_block_used;
  * Following is a small hack which solves the problem at least for gcc 4.7.
  *
  * In order to be useful, the -fdelete-null-pointer-checks must be set.
- * Since MARS is superuser-only anyway, enabling this for MARS should not
+ * Since XIO is superuser-only anyway, enabling this for MARS should not
  * be a security risk
  * (c.f. upstream kernel commit a3ca86aea507904148870946d599e07a340b39bf)
  */

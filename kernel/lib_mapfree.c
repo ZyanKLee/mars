@@ -71,7 +71,7 @@ void mapfree_pages(struct mapfree_info *mf, int grace_keep)
 				end = -1;
 		}
 
-		MARS_DBG("file = '%s' start = %lu end = %lu\n", SAFE_STR(mf->mf_name), start, end);
+		XIO_DBG("file = '%s' start = %lu end = %lu\n", SAFE_STR(mf->mf_name), start, end);
 	}
 
 	if (end > start || end == -1) {
@@ -85,7 +85,7 @@ static
 void _mapfree_put(struct mapfree_info *mf)
 {
 	if (atomic_dec_and_test(&mf->mf_count)) {
-		MARS_DBG("closing file '%s' filp = %p\n", mf->mf_name, mf->mf_filp);
+		XIO_DBG("closing file '%s' filp = %p\n", mf->mf_name, mf->mf_filp);
 		list_del_init(&mf->mf_head);
 		if (likely(mf->mf_filp)) {
 			mapfree_pages(mf, -1);
@@ -147,11 +147,11 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 		mf->mf_filp = filp_open(name, flags, prot);
 		set_fs(oldfs);
 
-		MARS_DBG("file '%s' flags = %d prot = %d filp = %p\n", name, flags, prot, mf->mf_filp);
+		XIO_DBG("file '%s' flags = %d prot = %d filp = %p\n", name, flags, prot, mf->mf_filp);
 
 		if (unlikely(!mf->mf_filp || IS_ERR(mf->mf_filp))) {
 			int err = PTR_ERR(mf->mf_filp);
-			MARS_ERR("can't open file '%s' status=%d\n", name, err);
+			XIO_ERR("can't open file '%s' status=%d\n", name, err);
 			mf->mf_filp = NULL;
 			_mapfree_put(mf);
 			mf = NULL;
@@ -160,7 +160,7 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 
 		if (unlikely(!(mapping = mf->mf_filp->f_mapping) ||
 			     !(inode = mapping->host))) {
-			MARS_ERR("file '%s' has no mapping\n", name);
+			XIO_ERR("file '%s' has no mapping\n", name);
 			mf->mf_filp = NULL;
 			_mapfree_put(mf);
 			mf = NULL;
@@ -172,7 +172,7 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 		mf->mf_max = i_size_read(inode);
 
 		if (S_ISBLK(inode->i_mode)) {
-			MARS_INF("changing blkdev readahead from %lu to %d\n", inode->i_bdev->bd_disk->queue->backing_dev_info.ra_pages, ra);
+			XIO_INF("changing blkdev readahead from %lu to %d\n", inode->i_bdev->bd_disk->queue->backing_dev_info.ra_pages, ra);
 			inode->i_bdev->bd_disk->queue->backing_dev_info.ra_pages = ra;
 		}
 
@@ -185,7 +185,7 @@ struct mapfree_info *mapfree_get(const char *name, int flags)
 		for (tmp = mapfree_list.next; tmp != &mapfree_list; tmp = tmp->next) {
 			struct mapfree_info *_mf = container_of(tmp, struct mapfree_info, mf_head);
 			if (unlikely(_mf->mf_flags == flags && !strcmp(_mf->mf_name, name))) {
-				MARS_WRN("race on creation of '%s' detected\n", name);
+				XIO_WRN("race on creation of '%s' detected\n", name);
 				_mapfree_put(mf);
 				mf = _mf;
 				atomic_inc(&mf->mf_count);
@@ -262,20 +262,20 @@ int mapfree_thread(void *data)
 static
 struct task_struct *mf_thread = NULL;
 
-int __init init_mars_mapfree(void)
+int __init init_xio_mapfree(void)
 {
-	MARS_DBG("init_mapfree()\n");
+	XIO_DBG("init_mapfree()\n");
 	mf_thread = brick_thread_create(mapfree_thread, NULL, "mars_mapfree");
 	if (unlikely(!mf_thread)) {
-		MARS_ERR("could not create mapfree thread\n");
+		XIO_ERR("could not create mapfree thread\n");
 		return -ENOMEM;
 	}
 	return 0;
 }
 
-void __exit exit_mars_mapfree(void)
+void __exit exit_xio_mapfree(void)
 {
-	MARS_DBG("exit_mapfree()\n");
+	XIO_DBG("exit_mapfree()\n");
 	if (likely(mf_thread)) {
 		brick_thread_stop(mf_thread);
 		mf_thread = NULL;

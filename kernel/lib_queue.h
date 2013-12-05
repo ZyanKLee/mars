@@ -102,7 +102,7 @@ ELEM_TYPE *q_##PREFIX##_fetch(struct PREFIX##_queue *q) 		\
 			elem = container_of(q->heap_high, ELEM_TYPE, ph);\
 									\
 			if (unlikely(KEYCMP(KEYFN(elem), &q->last_pos) < 0)) {\
-				MARS_ERR("backskip pos %lld -> %lld\n", (long long)q->last_pos, (long long)KEYFN(elem));\
+				XIO_ERR("backskip pos %lld -> %lld\n", (long long)q->last_pos, (long long)KEYFN(elem));\
 			}						\
 			memcpy(&q->last_pos, KEYFN(elem), sizeof(q->last_pos));\
 									\

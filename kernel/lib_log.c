@@ -5,7 +5,7 @@
 #include <linux/bio.h>
 
 //#define BRICK_DEBUGGING
-//#define MARS_DEBUGGING
+//#define XIO_DEBUGGING
 
 #include "lib_log.h"
 
@@ -18,23 +18,23 @@ void exit_logst(struct log_status *logst)
 	log_flush(logst);
 	while (atomic_read(&logst->aio_flying) > 0) {
 		if (!count++)
-			MARS_DBG("waiting for IO terminating...");
+			XIO_DBG("waiting for IO terminating...");
 		brick_msleep(500);
 	}
 	if (logst->read_aio) {
-		MARS_DBG("putting read_aio\n");
+		XIO_DBG("putting read_aio\n");
 		GENERIC_INPUT_CALL(logst->input, aio_put, logst->read_aio);
 		logst->read_aio = NULL;
 	}
 	if (logst->log_aio) {
-		MARS_DBG("putting log_aio\n");
+		XIO_DBG("putting log_aio\n");
 		GENERIC_INPUT_CALL(logst->input, aio_put, logst->log_aio);
 		logst->log_aio = NULL;
 	}
 }
 EXPORT_SYMBOL_GPL(exit_logst);
 
-void init_logst(struct log_status *logst, struct mars_input *input, loff_t start_pos)
+void init_logst(struct log_status *logst, struct xio_input *input, loff_t start_pos)
 {
 	exit_logst(logst);
 
@@ -106,7 +106,7 @@ void log_write_endio(struct generic_callback *cb)
 	return;
 
 err:
-	MARS_FAT("internal pointer corruption\n");
+	XIO_FAT("internal pointer corruption\n");
 }
 
 void log_flush(struct log_status *logst)
@@ -171,7 +171,7 @@ void *log_reserve(struct log_status *logst, struct log_header *lh)
 	int status;
 
 	if (unlikely(lh->l_len <= 0 || lh->l_len > logst->max_size)) {
-		MARS_ERR("trying to write %d bytes, max allowed = %d\n", lh->l_len, logst->max_size);
+		XIO_ERR("trying to write %d bytes, max allowed = %d\n", lh->l_len, logst->max_size);
 		goto err;
 	}
 
@@ -184,7 +184,7 @@ void *log_reserve(struct log_status *logst, struct log_header *lh)
 	aio = logst->log_aio;
 	if (!aio) {
 		if (unlikely(logst->private)) {
-			MARS_ERR("oops\n");
+			XIO_ERR("oops\n");
 			brick_mem_free(logst->private);
 		}
 		logst->private = brick_zmem_alloc(sizeof(struct log_cb_info));
@@ -192,7 +192,7 @@ void *log_reserve(struct log_status *logst, struct log_header *lh)
 		sema_init(&cb_info->mutex, 1);
 		atomic_set(&cb_info->refcount, 2);
 
-		aio = mars_alloc_aio(logst->brick);
+		aio = xio_alloc_aio(logst->brick);
 		cb_info->aio = aio;
 
 		aio->io_pos = logst->log_pos;
@@ -206,14 +206,14 @@ void *log_reserve(struct log_status *logst, struct log_header *lh)
 				break;
 			}
 			if (status != -ENOMEM && status != -EAGAIN) {
-				MARS_ERR("aio_get() failed, status = %d\n", status);
+				XIO_ERR("aio_get() failed, status = %d\n", status);
 				goto err_free;
 			}
 			brick_msleep(100);
 		}
 
 		if (unlikely(aio->io_len < total_len)) {
-			MARS_ERR("io_len = %d total_len = %d\n", aio->io_len, total_len);
+			XIO_ERR("io_len = %d total_len = %d\n", aio->io_len, total_len);
 			goto put;
 		}
 
@@ -278,16 +278,16 @@ bool log_finalize(struct log_status *logst, int len, void (*endio)(void *private
 	CHECK_PTR(aio, err);
 
 	if (unlikely(len > logst->payload_len)) {
-		MARS_ERR("trying to write more than reserved (%d > %d)\n", len, logst->payload_len);
+		XIO_ERR("trying to write more than reserved (%d > %d)\n", len, logst->payload_len);
 		goto err;
 	}
 	restlen = aio->io_len - logst->offset;
 	if (unlikely(len + END_OVERHEAD > restlen)) {
-		MARS_ERR("trying to write more than available (%d > %d)\n", len, (int)(restlen - END_OVERHEAD));
+		XIO_ERR("trying to write more than available (%d > %d)\n", len, (int)(restlen - END_OVERHEAD));
 		goto err;
 	}
 	if (unlikely(!cb_info || cb_info->nr_cb >= MARS_LOG_CB_MAX)) {
-		MARS_ERR("too many endio() calls\n");
+		XIO_ERR("too many endio() calls\n");
 		goto err;
 	}
 
@@ -295,8 +295,8 @@ bool log_finalize(struct log_status *logst, int len, void (*endio)(void *private
 
 	crc = 0;
 	if (logst->do_crc) {
-		unsigned char checksum[mars_digest_size];
-		mars_digest(checksum, data + logst->payload_offset, len);
+		unsigned char checksum[xio_digest_size];
+		xio_digest(checksum, data + logst->payload_offset, len);
 		crc = *(int*)checksum;
 	}
 
@@ -319,7 +319,7 @@ bool log_finalize(struct log_status *logst, int len, void (*endio)(void *private
 	DATA_PUT(data, offset, now.tv_nsec);
 
 	if (unlikely(offset > aio->io_len)) {
-		MARS_FAT("length calculation was wrong: %d > %d\n", offset, aio->io_len);
+		XIO_FAT("length calculation was wrong: %d > %d\n", offset, aio->io_len);
 		goto err;
 	}
 	logst->offset = offset;
@@ -358,7 +358,7 @@ void log_read_endio(struct generic_callback *cb)
 	return;
 
 err:
-	MARS_FAT("internal pointer corruption\n");
+	XIO_FAT("internal pointer corruption\n");
 }
 
 
@@ -379,7 +379,7 @@ restart:
 			logst->offset = 0;
 		}
 
-		aio = mars_alloc_aio(logst->brick);
+		aio = xio_alloc_aio(logst->brick);
 		aio->io_pos = logst->log_pos;
 		aio->io_len = logst->chunk_size;
 		aio->io_prio = logst->io_prio;
@@ -387,7 +387,7 @@ restart:
 		status = GENERIC_INPUT_CALL(logst->input, aio_get, aio);
 		if (unlikely(status < 0)) {
 			if (status != -ENODATA) {
-				MARS_ERR("aio_get() failed, status = %d\n", status);
+				XIO_ERR("aio_get() failed, status = %d\n", status);
 			}
 			goto done_free;
 		}
@@ -425,7 +425,7 @@ restart:
 			  &logst->seq_nr);
 
 	if (unlikely(status == 0)) {
-		MARS_ERR("bad logfile scan\n");
+		XIO_ERR("bad logfile scan\n");
 		status = -EINVAL;
 	}
 	if (unlikely(status < 0)) {
@@ -470,11 +470,11 @@ EXPORT_SYMBOL_GPL(log_read);
 
 int __init init_log_format(void)
 {
-	MARS_INF("init_log_format()\n");
+	XIO_INF("init_log_format()\n");
 	return 0;
 }
 
 void __exit exit_log_format(void)
 {
-	MARS_INF("exit_log_format()\n");
+	XIO_INF("exit_log_format()\n");
 }

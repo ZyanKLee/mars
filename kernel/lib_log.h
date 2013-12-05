@@ -11,7 +11,7 @@
 #define LIB_LOG_H
 
 #ifdef __KERNEL__
-#include "mars.h"
+#include "xio_bricks/xio.h"
 
 extern atomic_t global_aio_flying;
 #endif
@@ -110,7 +110,7 @@ int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, 
 
 		offset = i;
 		if (unlikely(i > 0 && !sloppy)) {
-			MARS_ERR(SCAN_TXT "detected a hole / bad data\n", SCAN_PAR);
+			XIO_ERR(SCAN_TXT "detected a hole / bad data\n", SCAN_PAR);
 			return -EBADMSG;
 		}
 
@@ -123,23 +123,23 @@ int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, 
 
 		restlen = len - i;
 		if (unlikely(restlen < START_OVERHEAD)) {
-			MARS_WRN(SCAN_TXT "magic found, but restlen is too small\n", SCAN_PAR);
+			XIO_WRN(SCAN_TXT "magic found, but restlen is too small\n", SCAN_PAR);
 			return -EAGAIN;
 		}
 
 		DATA_GET(buf, offset, format_version);
 		if (unlikely(format_version != FORMAT_VERSION)) {
-			MARS_ERR(SCAN_TXT "found unknown data format %d\n", SCAN_PAR, (int)format_version);
+			XIO_ERR(SCAN_TXT "found unknown data format %d\n", SCAN_PAR, (int)format_version);
 			return -EBADMSG;
 		}
 		DATA_GET(buf, offset, valid_flag);
 		if (unlikely(!valid_flag)) {
-			MARS_WRN(SCAN_TXT "data is explicitly marked invalid (was there a short write?)\n", SCAN_PAR);
+			XIO_WRN(SCAN_TXT "data is explicitly marked invalid (was there a short write?)\n", SCAN_PAR);
 			continue;
 		}
 		DATA_GET(buf, offset, total_len);
 		if (unlikely(total_len > restlen)) {
-			MARS_WRN(SCAN_TXT "total_len = %d but available data restlen = %d. Was the logfile truncated?\n", SCAN_PAR, total_len, restlen);
+			XIO_WRN(SCAN_TXT "total_len = %d but available data restlen = %d. Was the logfile truncated?\n", SCAN_PAR, total_len, restlen);
 			return -EAGAIN;
 		}
 
@@ -159,20 +159,20 @@ int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, 
 
 		restlen = len - offset;
 		if (unlikely(restlen < END_OVERHEAD)) {
-			MARS_WRN(SCAN_TXT "restlen %d is too small\n", SCAN_PAR, restlen);
+			XIO_WRN(SCAN_TXT "restlen %d is too small\n", SCAN_PAR, restlen);
 			return -EAGAIN;
 		}
 
 		DATA_GET(buf, offset, end_magic);
 		if (unlikely(end_magic != END_MAGIC)) {
-			MARS_WRN(SCAN_TXT "bad end_magic 0x%llx, is the logfile truncated?\n", SCAN_PAR, end_magic);
+			XIO_WRN(SCAN_TXT "bad end_magic 0x%llx, is the logfile truncated?\n", SCAN_PAR, end_magic);
 			return -EBADMSG;
 		}
 		DATA_GET(buf, offset, lh->l_crc);
 		DATA_GET(buf, offset, valid_copy);
 
 		if (unlikely(valid_copy != 1)) {
-			MARS_WRN(SCAN_TXT "found data marked as uncompleted / invalid, len = %d, valid_flag = %d\n", SCAN_PAR, lh->l_len, (int)valid_copy);
+			XIO_WRN(SCAN_TXT "found data marked as uncompleted / invalid, len = %d, valid_flag = %d\n", SCAN_PAR, lh->l_len, (int)valid_copy);
 			return -EBADMSG;
 		}
 
@@ -184,23 +184,23 @@ int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, 
 		DATA_GET(buf, offset, lh->l_written.tv_nsec);
 
 		if (unlikely(lh->l_seq_nr != *seq_nr + 1 && lh->l_seq_nr && *seq_nr)) {
-			MARS_ERR(SCAN_TXT "record sequence number %u mismatch, expected was %u\n", SCAN_PAR, lh->l_seq_nr, *seq_nr + 1);
+			XIO_ERR(SCAN_TXT "record sequence number %u mismatch, expected was %u\n", SCAN_PAR, lh->l_seq_nr, *seq_nr + 1);
 			return -EBADMSG;
 		}
 		*seq_nr = lh->l_seq_nr;
 
 		if (lh->l_crc) {
-			unsigned char checksum[mars_digest_size];
-			mars_digest(checksum, buf + found_offset, lh->l_len);
+			unsigned char checksum[xio_digest_size];
+			xio_digest(checksum, buf + found_offset, lh->l_len);
 			if (unlikely(*(int*)checksum != lh->l_crc)) {
-				MARS_ERR(SCAN_TXT "data checksumming mismatch, length = %d\n", SCAN_PAR, lh->l_len);
+				XIO_ERR(SCAN_TXT "data checksumming mismatch, length = %d\n", SCAN_PAR, lh->l_len);
 				return -EBADMSG;
 			}
 		}
 
 		// last check
 		if (unlikely(total_len != offset - i)) {
-			MARS_ERR(SCAN_TXT "internal size mismatch: %d != %d\n", SCAN_PAR, total_len, offset - i);
+			XIO_ERR(SCAN_TXT "internal size mismatch: %d != %d\n", SCAN_PAR, total_len, offset - i);
 			return -EBADMSG;
 		}
 
@@ -210,13 +210,13 @@ int log_scan(void *buf, int len, loff_t file_pos, int file_offset, bool sloppy, 
 
 		// don't cry when nullbytes have been skipped
 		if (i > 0 && dirty) {
-			MARS_WRN(SCAN_TXT "skipped %d dirty bytes to find valid data\n", SCAN_PAR, i);
+			XIO_WRN(SCAN_TXT "skipped %d dirty bytes to find valid data\n", SCAN_PAR, i);
 		}
 
 		return offset;
 	}
 
-	MARS_ERR("could not find any useful data within len=%d bytes\n", len);
+	XIO_ERR("could not find any useful data within len=%d bytes\n", len);
 	return -EAGAIN;
 }
 
@@ -242,9 +242,9 @@ struct log_status {
 	struct timespec log_pos_stamp;
 	// internal
 	struct timespec tmp_pos_stamp;
-	struct mars_input *input;
-	struct mars_brick *brick;
-	struct mars_info info;
+	struct xio_input *input;
+	struct xio_brick *brick;
+	struct xio_info info;
 	int offset;
 	int validflag_offset;
 	int reallen_offset;
@@ -260,7 +260,7 @@ struct log_status {
 	void *private;
 };
 
-void init_logst(struct log_status *logst, struct mars_input *input, loff_t start_pos);
+void init_logst(struct log_status *logst, struct xio_input *input, loff_t start_pos);
 void exit_logst(struct log_status *logst);
 
 void log_flush(struct log_status *logst);

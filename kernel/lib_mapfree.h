@@ -18,7 +18,7 @@
  * 4) Also to prevent deadlocks: always set mapping_set_gfp_mask() accordingly.
  */
 
-#include "mars.h"
+#include "xio_bricks/xio.h"
 
 extern int mapfree_period_sec;
 extern int mapfree_grace_keep_mb;
@@ -44,8 +44,8 @@ void mapfree_set(struct mapfree_info *mf, loff_t min, loff_t max);
 
 ////////////////// module init stuff /////////////////////////
 
-int __init init_mars_mapfree(void);
+int __init init_xio_mapfree(void);
 
-void __exit exit_mars_mapfree(void);
+void __exit exit_xio_mapfree(void);
 
 #endif

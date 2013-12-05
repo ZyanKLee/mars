@@ -6,9 +6,9 @@
 
 #include <linux/utsname.h>
 
-struct mars_limiter {
+struct xio_limiter {
 	/* hierarchy tree */
-	struct mars_limiter *lim_father;
+	struct xio_limiter *lim_father;
 	/* tunables */
 	int lim_max_rate;
 	int lim_max_delay;
@@ -23,8 +23,8 @@ struct mars_limiter {
 	long long lim_accu;
 };
 
-extern int mars_limit(struct mars_limiter *lim, int amount);
+extern int xio_limit(struct xio_limiter *lim, int amount);
 
-extern void mars_limit_sleep(struct mars_limiter *lim, int amount);
+extern void xio_limit_sleep(struct xio_limiter *lim, int amount);
 
 #endif
